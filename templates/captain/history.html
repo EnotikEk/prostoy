@@ -1,0 +1,333 @@
+{% extends "base.html" %}
+
+{% block title %}История простоев{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="card">
+        <div class="card-header">
+            <h4 class="mb-0"><i class="fas fa-history me-2"></i> История простоев</h4>
+        </div>
+        <div class="card-body">
+            <!-- Фильтры -->
+            <form method="GET" class="row g-3 mb-4">
+                <div class="col-md-4">
+                    <label class="form-label">Статус</label>
+                    <select name="status" class="form-select" onchange="this.form.submit()">
+                        <option value="">Все статусы</option>
+                        <option value="draft" {% if status_filter == 'draft' %}selected{% endif %}>Черновик</option>
+                        <option value="captain_signed" {% if status_filter == 'captain_signed' %}selected{% endif %}>На утверждении</option>
+                        <option value="approved" {% if status_filter == 'approved' %}selected{% endif %}>Утверждён</option>
+                        <option value="rejected" {% if status_filter == 'rejected' %}selected{% endif %}>Отклонён</option>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Код причины</label>
+                    <select name="reason" class="form-select" onchange="this.form.submit()">
+                        <option value="">Все причины</option>
+                        <option value="01" {% if reason_filter == '01' %}selected{% endif %}>01 - Техническая неисправность</option>
+                        <option value="02" {% if reason_filter == '02' %}selected{% endif %}>02 - Отсутствие ЗИП</option>
+                        <option value="03" {% if reason_filter == '03' %}selected{% endif %}>03 - Погодные условия</option>
+                        <option value="04" {% if reason_filter == '04' %}selected{% endif %}>04 - Ожидание грузовых операций</option>
+                        <option value="05" {% if reason_filter == '05' %}selected{% endif %}>05 - Экипаж</option>
+                        <option value="06" {% if reason_filter == '06' %}selected{% endif %}>06 - Документальное оформление</option>
+                        <option value="07" {% if reason_filter == '07' %}selected{% endif %}>07 - Прочие</option>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <button type="submit" class="btn btn-primary w-100">Фильтровать</button>
+                </div>
+            </form>
+
+            <!-- Таблица истории - строки кликабельны -->
+            <div class="table-responsive">
+                <table class="table table-striped table-hover" id="historyTable">
+                    <thead style="background-color: #2c3e50; color: white;">
+                        <tr>
+                            <th>ID</th>
+                            <th>Начало</th>
+                            <th>Окончание</th>
+                            <th>Длительность (ч)</th>
+                            <th>Причина</th>
+                            <th>Статус</th>
+                            <th>Файлы</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for dt in downtimes %}
+                        <tr class="clickable-row" data-downtime-id="{{ dt.id }}" style="cursor: pointer;">
+                            <td>{{ dt.id }}</td>
+                            <td>{{ dt.start_time.strftime('%d.%m.%Y %H:%M') if dt.start_time else '-' }}</td>
+                            <td>
+                                {% if dt.end_time %}
+                                    {{ dt.end_time.strftime('%d.%m.%Y %H:%M') }}
+                                {% else %}
+                                    <span class="text-warning">Активен</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if dt.end_time %}
+                                    {{ ((dt.end_time - dt.start_time).total_seconds() / 3600)|round(2) }}
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
+                            <td>
+                                <span class="badge bg-secondary">{{ dt.reason_code or '-' }}</span>
+                                {% if dt.reason_code %}
+                                <small class="text-muted">{{ dt.get_reason_name() if dt.get_reason_name else '' }}</small>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if dt.status == 'draft' %}
+                                    <span class="badge bg-secondary">Черновик</span>
+                                {% elif dt.status == 'captain_signed' %}
+                                    <span class="badge bg-info text-dark">На утверждении</span>
+                                {% elif dt.status == 'approved' %}
+                                    <span class="badge bg-success">Утверждён</span>
+                                {% elif dt.status == 'rejected' %}
+                                    <span class="badge bg-danger">Отклонён</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if dt.files and dt.files|length > 0 %}
+                                    <span class="badge bg-info">
+                                        <i class="fas fa-paperclip"></i> {{ dt.files|length }}
+                                    </span>
+                                {% else %}
+                                    <span class="text-muted">—</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="7" class="text-center py-5">
+                                <i class="fas fa-inbox fa-3x text-muted mb-3 d-block"></i>
+                                <p class="text-muted mb-0">Нет записей о простоях</p>
+                                <small class="text-muted">Начните новый простой с дашборда</small>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Единое модальное окно для деталей простоя -->
+<div class="modal fade" id="downtimeDetailModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header" style="background-color: #2c3e50; color: white;">
+                <h5 class="modal-title" id="modalTitle">Детали простоя</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="modalBody">
+                <div class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Загрузка...</span>
+                    </div>
+                    <p class="mt-2">Загрузка данных...</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Функция загрузки деталей простоя через AJAX
+function showDowntimeDetail(downtimeId) {
+    const modal = new bootstrap.Modal(document.getElementById('downtimeDetailModal'));
+    const modalBody = document.getElementById('modalBody');
+    const modalTitle = document.getElementById('modalTitle');
+    
+    // Показываем загрузку
+    modalBody.innerHTML = `
+        <div class="text-center py-4">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Загрузка...</span>
+            </div>
+            <p class="mt-2">Загрузка данных...</p>
+        </div>
+    `;
+    
+    modal.show();
+    
+    fetch('/api/downtimes/' + downtimeId)
+        .then(function(response) { return response.json(); })
+        .then(function(data) {
+            modalTitle.innerHTML = 'Простой #' + data.id + ' - ' + data.ship_name;
+            
+            const startTime = data.start_time ? new Date(data.start_time).toLocaleString('ru-RU') : '-';
+            const endTime = data.end_time ? new Date(data.end_time).toLocaleString('ru-RU') : '<span class="text-warning">Не завершён</span>';
+            
+            // Формируем статус бейдж
+            let statusBadge = '';
+            if (data.status === 'approved') statusBadge = '<span class="badge bg-success">Утверждён</span>';
+            else if (data.status === 'rejected') statusBadge = '<span class="badge bg-danger">Отклонён</span>';
+            else if (data.status === 'captain_signed') statusBadge = '<span class="badge bg-info text-dark">На утверждении</span>';
+            else statusBadge = '<span class="badge bg-secondary">Черновик</span>';
+            
+            // Формируем список файлов
+            let filesHtml = '';
+            if (data.files && data.files.length > 0) {
+                filesHtml = '<div class="list-group">';
+                for (var i = 0; i < data.files.length; i++) {
+                    var file = data.files[i];
+                    filesHtml += `
+                        <div class="list-group-item">
+                            <div class="d-flex justify-content-between align-items-center flex-wrap">
+                                <div>
+                                    <i class="fas fa-file-alt me-2"></i>
+                                    <strong>${escapeHtml(file.filename)}</strong>
+                                    <br>
+                                    <small class="text-muted">${escapeHtml(file.filepath)}</small>
+                                </div>
+                                <div class="btn-group mt-2 mt-md-0">
+                                    <a href="/uploads/${encodeURIComponent(file.filepath)}" target="_blank" class="btn btn-sm btn-primary">
+                                        <i class="fas fa-eye"></i> Открыть
+                                    </a>
+                                    <a href="/uploads/${encodeURIComponent(file.filepath)}" download class="btn btn-sm btn-success">
+                                        <i class="fas fa-download"></i> Скачать
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+                filesHtml += '</div>';
+            } else {
+                filesHtml = '<p class="text-muted"><i class="fas fa-ban me-2"></i>Нет прикреплённых файлов</p>';
+            }
+            
+            modalBody.innerHTML = `
+                <table class="table table-bordered">
+                    <tr>
+                        <th style="width: 150px;">Судно</th>
+                        <td>${escapeHtml(data.ship_name)}</td>
+                    </tr>
+                    <tr>
+                        <th>Начало простоя</th>
+                        <td>${startTime}</td>
+                    </tr>
+                    <tr>
+                        <th>Окончание простоя</th>
+                        <td>${endTime}</td>
+                    </tr>
+                    <tr>
+                        <th>Длительность</th>
+                        <td><strong>${data.duration_hours} часов</strong></td>
+                    </tr>
+                    <tr>
+                        <th>Код причины</th>
+                        <td><span class="badge bg-secondary">${data.reason_code || '-'}</span> ${escapeHtml(data.reason_name || '')}</td>
+                    </tr>
+                    <tr>
+                        <th>Статус</th>
+                        <td>${statusBadge}</td>
+                    </tr>
+                    <tr>
+                        <th>Описание</th>
+                        <td><div class="alert alert-light mb-0">${escapeHtml(data.description || 'Нет описания')}</div></td>
+                    </tr>
+                </table>
+                
+                <h6 class="mt-3"><i class="fas fa-paperclip me-2"></i> Прикреплённые файлы:</h6>
+                ${filesHtml}
+            `;
+        })
+        .catch(function(error) {
+            console.error('Error:', error);
+            modalBody.innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    Ошибка загрузки данных. Попробуйте позже.
+                    <br><br>
+                    <button class="btn btn-danger" onclick="location.reload()">Обновить страницу</button>
+                </div>
+            `;
+        });
+}
+
+// Функция копирования ссылки в буфер обмена
+function copyToClipboard(url) {
+    const fullUrl = window.location.origin + url;
+    navigator.clipboard.writeText(fullUrl).then(function() {
+        showToast('Ссылка скопирована!', 'success');
+    }).catch(function() {
+        alert('Ссылка: ' + fullUrl);
+    });
+}
+
+// Функция показа уведомления
+function showToast(message, type) {
+    let toastContainer = document.getElementById('toast-container');
+    if (!toastContainer) {
+        toastContainer = document.createElement('div');
+        toastContainer.id = 'toast-container';
+        toastContainer.style.position = 'fixed';
+        toastContainer.style.bottom = '20px';
+        toastContainer.style.right = '20px';
+        toastContainer.style.zIndex = '9999';
+        document.body.appendChild(toastContainer);
+    }
+    
+    const bgClass = type === 'error' ? 'bg-danger' : (type === 'success' ? 'bg-success' : 'bg-info');
+    const toastId = 'toast-' + Date.now();
+    
+    const toastHtml = `
+        <div id="${toastId}" class="toast align-items-center text-white ${bgClass} border-0 mb-2" role="alert">
+            <div class="d-flex">
+                <div class="toast-body">${message}</div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+            </div>
+        </div>
+    `;
+    
+    toastContainer.insertAdjacentHTML('beforeend', toastHtml);
+    const toastElement = document.getElementById(toastId);
+    const toast = new bootstrap.Toast(toastElement, {delay: 3000});
+    toast.show();
+    
+    toastElement.addEventListener('hidden.bs.toast', function() {
+        toastElement.remove();
+    });
+}
+
+// Функция экранирования HTML
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Клик по строке таблицы
+document.addEventListener('DOMContentLoaded', function() {
+    const rows = document.querySelectorAll('.clickable-row');
+    for (var i = 0; i < rows.length; i++) {
+        rows[i].addEventListener('click', function(e) {
+            // Если кликнули на кнопку или ссылку внутри строки - не открываем модальное окно
+            if (e.target.closest('.btn') || e.target.closest('a')) {
+                return;
+            }
+            const downtimeId = this.getAttribute('data-downtime-id');
+            if (downtimeId) {
+                showDowntimeDetail(downtimeId);
+            }
+        });
+    }
+});
+</script>
+
+<style>
+.clickable-row:hover {
+    background-color: #e8f4ff !important;
+    transition: background-color 0.2s ease;
+}
+</style>
+{% endblock %}

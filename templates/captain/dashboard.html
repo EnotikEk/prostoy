@@ -1,0 +1,268 @@
+{% extends "base.html" %}
+
+{% block title %}Дашборд капитана{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Информация о судне -->
+    <div class="row">
+        <div class="col-12 mb-4">
+            <div class="card bg-primary text-white">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h3 class="mb-0"><i class="fas fa-ship me-2"></i> {{ ship.name if ship else 'Судно не назначено' }}</h3>
+                            <p class="mb-0 mt-2">
+                                <i class="fas fa-tag me-1"></i> Группа: {{ ship.group if ship else '-' }} | 
+                                <i class="fas fa-id-card me-1"></i> Рег.номер: {{ ship.reg_number if ship else '-' }}
+                            </p>
+                        </div>
+                        {% if ship %}
+                        <div>
+                            <span class="badge bg-light text-dark px-3 py-2">
+                                <i class="fas fa-calendar-alt me-1"></i>
+                                Навигация: {{ ship.navigation_start.strftime('%d.%m') }} - {{ ship.navigation_end.strftime('%d.%m') }}
+                            </span>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Управление простоем -->
+    <div class="row">
+        <div class="col-12 mb-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="fas fa-play-circle me-2"></i> Управление простоем</h5>
+                </div>
+                <div class="card-body text-center">
+                    {% if active_downtime %}
+                        <!-- Активный простой -->
+                        <div class="alert alert-danger" id="activeDowntimeBlock">
+                            <i class="fas fa-exclamation-triangle fa-2x mb-2"></i>
+                            <h4>Активный простой</h4>
+                            <p>Начало: <strong id="startTimeDisplay">{{ active_downtime.start_time.strftime('%d.%m.%Y %H:%M:%S') }}</strong></p>
+                            <p id="activeTimer" class="h2 mb-3" style="font-family: monospace; font-size: 2rem; font-weight: bold;">00:00:00</p>
+                            
+                            <hr>
+                            
+                            <form method="POST" action="{{ url_for('complete_downtime', downtime_id=active_downtime.id) }}" enctype="multipart/form-data" class="text-start mt-3" id="completeForm">
+                                <div class="mb-3">
+                                    <label class="form-label fw-bold">Причина простоя <span class="text-danger">*</span></label>
+                                    <select class="form-select" name="reason_code" required>
+                                        <option value="">Выберите причину</option>
+                                        <option value="01">01 - Техническая неисправность</option>
+                                        <option value="02">02 - Отсутствие запасных частей</option>
+                                        <option value="03">03 - Погодные условия</option>
+                                        <option value="04">04 - Ожидание грузовых операций</option>
+                                        <option value="05">05 - Экипаж (недостаток/болезнь)</option>
+                                        <option value="06">06 - Документальное оформление</option>
+                                        <option value="07">07 - Прочие причины</option>
+                                    </select>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label fw-bold">Описание <span class="text-danger">*</span> (мин. 10 символов)</label>
+                                    <textarea class="form-control" name="description" rows="4" required minlength="10"></textarea>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label fw-bold">Подтверждающие файлы (фото, PDF)</label>
+                                    <input type="file" class="form-control" name="files" multiple accept=".jpg,.jpeg,.png,.pdf">
+                                    <div id="filePreview" class="mt-2"></div>
+                                </div>
+                                <div class="d-grid gap-2">
+                                    <button type="submit" class="btn btn-success" id="completeBtn">
+                                        <i class="fas fa-check-circle"></i> Завершить простой
+                                    </button>
+                                </div>
+                            </form>
+                            
+                            <form method="POST" action="{{ url_for('cancel_downtime', downtime_id=active_downtime.id) }}" class="mt-2" id="cancelForm"
+                                  onsubmit="return confirm('Отменить простой? Все данные будут потеряны.')">
+                                <button type="submit" class="btn btn-danger w-100" id="cancelBtn">
+                                    <i class="fas fa-times-circle"></i> Отменить простой
+                                </button>
+                            </form>
+                        </div>
+                    {% else %}
+                        <!-- Нет активного простоя -->
+                        <div>
+                            <form method="POST" action="{{ url_for('start_downtime') }}" id="startForm">
+                                <button type="submit" class="btn btn-danger btn-lg px-5" id="startBtn">
+                                    <i class="fas fa-play-circle me-2"></i> Начать простой
+                                </button>
+                            </form>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Последние простои -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="fas fa-history me-2"></i> Последние простои</h5>
+                    <a href="{{ url_for('captain_history') }}" class="btn btn-sm btn-outline-light">Вся история</a>
+                </div>
+                <div class="card-body table-responsive">
+                    <table class="table table-hover" id="downtimesTable">
+                        <thead>
+                            <tr>
+                                <th>Начало</th>
+                                <th>Окончание</th>
+                                <th>Длительность</th>
+                                <th>Код причины</th>
+                                <th>Статус</th>
+                            </tr>
+                        </thead>
+                        <tbody id="downtimesTableBody">
+                            {% for dt in recent_downtimes %}
+                            <tr>
+                                <td>{{ dt.start_time.strftime('%d.%m.%Y %H:%M') }}</td>
+                                <td>{{ dt.end_time.strftime('%d.%m.%Y %H:%M') if dt.end_time else '<span class="text-warning">Активен</span>'|safe }}</td>
+                                <td>
+                                    {% if dt.end_time %}
+                                        {{ ((dt.end_time - dt.start_time).total_seconds() / 3600)|round(1) }} ч
+                                    {% else %}
+                                        -
+                                    {% endif %}
+                                </td>
+                                <td>{{ dt.reason_code or '-' }}</td>
+                                <td>
+                                    {% if dt.status == 'draft' %}
+                                        <span class="badge bg-secondary">Черновик</span>
+                                    {% elif dt.status == 'captain_signed' %}
+                                        <span class="badge bg-info text-dark">На утверждении</span>
+                                    {% elif dt.status == 'approved' %}
+                                        <span class="badge bg-success">Утверждён</span>
+                                    {% elif dt.status == 'rejected' %}
+                                        <span class="badge bg-danger">Отклонён</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr id="noDataRow">
+                                <td colspan="5" class="text-center py-4">
+                                    <i class="fas fa-inbox fa-2x text-muted mb-2 d-block"></i>
+                                    <p class="text-muted">Нет записей о простоях</p>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Получаем время начала с сервера (Unix timestamp в миллисекундах)
+{% if active_downtime %}
+    // Используем ISO строку, которая правильно интерпретируется на любом устройстве
+    var serverStartTimeStr = '{{ active_downtime.start_time.isoformat() }}';
+    // Создаем дату из строки (это гарантирует правильное время независимо от часового пояса устройства)
+    var startTime = new Date(serverStartTimeStr);
+    var timerInterval = null;
+    
+    // Функция форматирования числа с ведущим нулем
+    function pad(num) {
+        return num.toString().padStart(2, '0');
+    }
+    
+    // Функция обновления таймера
+    function updateTimer() {
+        if (!startTime) return;
+        
+        var now = new Date();
+        var diff = Math.floor((now - startTime) / 1000);
+        
+        // Защита от отрицательного времени
+        if (diff < 0) diff = 0;
+        
+        var hours = Math.floor(diff / 3600);
+        var minutes = Math.floor((diff % 3600) / 60);
+        var seconds = diff % 60;
+        
+        var timerElement = document.getElementById('activeTimer');
+        if (timerElement) {
+            timerElement.textContent = pad(hours) + ':' + pad(minutes) + ':' + pad(seconds);
+        }
+    }
+    
+    // Запускаем таймер
+    updateTimer();
+    timerInterval = setInterval(updateTimer, 1000);
+    
+    // Останавливаем таймер при уходе со страницы
+    window.addEventListener('beforeunload', function() {
+        if (timerInterval) {
+            clearInterval(timerInterval);
+        }
+    });
+{% endif %}
+
+// Предпросмотр файлов
+var fileInput = document.querySelector('[name="files"]');
+if (fileInput) {
+    fileInput.addEventListener('change', function(e) {
+        var files = Array.from(e.target.files);
+        var preview = document.getElementById('filePreview');
+        if (preview) {
+            preview.innerHTML = '';
+            files.forEach(function(file) {
+                var div = document.createElement('div');
+                div.className = 'alert alert-info alert-dismissible fade show';
+                div.innerHTML = `
+                    <i class="fas fa-file-alt"></i> ${file.name} (${(file.size / 1024).toFixed(1)} KB)
+                    <button type="button" class="btn-close" onclick="this.parentElement.remove()"></button>
+                `;
+                preview.appendChild(div);
+            });
+        }
+    });
+}
+
+// Предотвращение двойной отправки формы завершения простоя
+var completeForm = document.getElementById('completeForm');
+if (completeForm) {
+    completeForm.addEventListener('submit', function(e) {
+        var submitBtn = document.getElementById('completeBtn');
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> Отправка...';
+        }
+    });
+}
+
+// Предотвращение двойной отправки формы начала простоя
+var startForm = document.getElementById('startForm');
+if (startForm) {
+    startForm.addEventListener('submit', function(e) {
+        var startBtn = document.getElementById('startBtn');
+        if (startBtn) {
+            startBtn.disabled = true;
+            startBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> Запуск...';
+        }
+    });
+}
+
+// Функция для синхронизации времени с сервером (опционально)
+function syncServerTime() {
+    fetch('/api/server-time')
+        .then(response => response.json())
+        .then(data => {
+            console.log('Серверное время:', new Date(data.server_time));
+        })
+        .catch(error => console.error('Ошибка синхронизации времени:', error));
+}
+
+// Синхронизируем время с сервером при загрузке
+syncServerTime();
+</script>
+{% endblock %}

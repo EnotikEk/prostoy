@@ -1,0 +1,55 @@
+/* Дополнительные стили поверх Bootstrap */
+body {
+    background-color: #f0f2f5;
+}
+
+.card {
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    border: none;
+}
+
+.card-header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 12px 12px 0 0 !important;
+    padding: 15px 20px;
+}
+
+.table-responsive {
+    border-radius: 8px;
+}
+
+.table th {
+    background-color: #f8f9fa;
+    font-weight: 600;
+    border-bottom: 2px solid #dee2e6;
+}
+
+.btn-lg {
+    padding: 12px 24px;
+    font-size: 1.1rem;
+}
+
+.badge {
+    padding: 6px 12px;
+    border-radius: 20px;
+}
+
+.alert {
+    border-radius: 10px;
+}
+
+@media (max-width: 768px) {
+    .container-fluid {
+        padding: 10px;
+    }
+    
+    .table td, .table th {
+        padding: 8px;
+        font-size: 0.8rem;
+    }
+    
+    .btn {
+        font-size: 0.85rem;
+    }
+}
