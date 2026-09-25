@@ -28,6 +28,17 @@ class Ship(db.Model):
     planned_downtime_hours = db.Column(db.Float, default=0)
     is_active = db.Column(db.Boolean, default=True)
 
+    # Характеристики судна (вводятся пользователем)
+    core = db.Column(db.String(10))                # Р.Я / Н.Я
+    build_year = db.Column(db.String(20))
+    gross_tonnage = db.Column(db.String(50))       # Валовая вместимость, р.т.
+    rko_class = db.Column(db.String(100))          # Класс (РКО)
+    id_number = db.Column(db.String(100))          # Идентификационный номер
+    annual_rko = db.Column(db.String(50))          # Ежегодное РКО
+    sub = db.Column(db.String(50))                 # СУБ
+    min_crew_cert = db.Column(db.String(200))      # Свидетельство о минимальном составе экипажа
+    dimensions = db.Column(db.String(100))         # Габариты L/B/H/T
+
 class Downtime(db.Model):
     __tablename__ = 'downtimes'
     id = db.Column(db.Integer, primary_key=True)

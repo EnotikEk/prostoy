@@ -159,7 +159,7 @@
                         <tbody>
                             {% for ship in kpi_data.ships_data %}
                             <tr>
-                                <td><strong>{{ ship.ship_name }}</strong></td>
+                                <td><strong class="ship-info-link" data-ship-id="{{ ship.ship_id }}">{{ ship.ship_name }}</strong></td>
                                 <td>{{ "%.1f"|format(ship.planned_hours) }}</td>
                                 <td class="text-danger">{{ "%.1f"|format(ship.unplanned_hours) }}</td>
                                 <td>

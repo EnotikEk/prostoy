@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+
+{% block title %}Характеристики судна{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="card mb-4">
+        <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+            <h4 class="mb-0"><i class="fas fa-ship me-2"></i> Характеристики судна «{{ ship.name }}»</h4>
+            <a href="{{ url_for('admin_ships') }}" class="btn btn-light btn-sm"><i class="fas fa-arrow-left me-1"></i> К списку судов</a>
+        </div>
+        <div class="card-body">
+            <div class="alert alert-light border mb-4">
+                <label class="form-label fw-bold mb-1" for="referenceSelect">
+                    <i class="fas fa-table me-1"></i> Заполнить из таблицы «Информация по судам»
+                </label>
+                <div class="input-group">
+                    <select id="referenceSelect" class="form-select">
+                        <option value="">— выберите судно из таблицы —</option>
+                        {% for ref in reference_list %}
+                        <option value="{{ loop.index0 }}" {% if ref.name == suggested %}selected{% endif %}>{{ ref.name }} ({{ ref.build_year }})</option>
+                        {% endfor %}
+                    </select>
+                    <button type="button" class="btn btn-outline-primary" id="referenceFill">
+                        <i class="fas fa-magic me-1"></i> Заполнить
+                    </button>
+                </div>
+                <small class="text-muted">Поля заполнятся данными из таблицы, их можно исправить перед сохранением.</small>
+            </div>
+
+            <form method="POST" action="{{ url_for('admin_ship_characteristics', ship_id=ship.id) }}" class="row g-3">
+                <div class="col-md-6">
+                    <label class="form-label">Судно</label>
+                    <input type="text" class="form-control" value="{{ ship.name }}" disabled>
+                    <small class="text-muted">Название меняется в списке судов</small>
+                </div>
+                {% for key, label, placeholder in fields %}
+                <div class="col-md-6">
+                    <label class="form-label" for="field-{{ key }}">{{ label }}</label>
+                    {% if key == 'core' %}
+                    <select name="core" id="field-core" class="form-select">
+                        <option value="">— не указано —</option>
+                        {% for code, title in core_choices.items() %}
+                        <option value="{{ code }}" {% if values.core == code %}selected{% endif %}>{{ title }} ({{ code }})</option>
+                        {% endfor %}
+                    </select>
+                    {% else %}
+                    <input type="text" name="{{ key }}" id="field-{{ key }}" class="form-control"
+                           value="{{ values[key] }}" placeholder="{{ placeholder }}">
+                    {% endif %}
+                </div>
+                {% endfor %}
+                <div class="col-12 d-flex gap-2">
+                    <button type="submit" class="btn btn-success"><i class="fas fa-save me-1"></i> Сохранить</button>
+                    <a href="{{ url_for('admin_ships') }}" class="btn btn-secondary">Отмена</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+const shipReference = {{ reference_list|tojson }};
+
+document.getElementById('referenceFill').addEventListener('click', function() {
+    const idx = document.getElementById('referenceSelect').value;
+    if (idx === '') {
+        alert('Выберите судно из таблицы');
+        return;
+    }
+    const ref = shipReference[idx];
+    Object.keys(ref).forEach(function(key) {
+        const input = document.getElementById('field-' + key);
+        if (input) input.value = ref[key];
+    });
+});
+</script>
+{% endblock %}

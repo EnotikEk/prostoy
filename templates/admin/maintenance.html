@@ -70,7 +70,7 @@
                         {% set nav_hours = nav_days * 24 %}
                         {% set planned_after_repair = nav_hours - plan.planned_hours %}
                         <tr>
-                            <td><strong>{{ ship.name }}</strong></td>
+                            <td><strong class="ship-info-link" data-ship-id="{{ ship.id }}">{{ ship.name }}</strong></td>
                             <td><span class="badge bg-secondary">{{ ship.group }}</span></td>
                             <td>
                                 {% if ship.navigation_start and ship.navigation_end %}

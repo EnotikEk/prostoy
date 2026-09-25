@@ -27,7 +27,7 @@
                         {% for dt in downtimes %}
                         <tr class="clickable-row" data-downtime-id="{{ dt.id }}" style="cursor: pointer;">
                             <td>
-                                <strong>{{ dt.ship.name }}</strong>
+                                <strong class="ship-info-link" data-ship-id="{{ dt.ship_id }}">{{ dt.ship.name }}</strong>
                                 <br><small class="text-muted">Группа: {{ dt.ship.group }}</small>
                             </td>
                             <td>{{ dt.start_time.strftime('%d.%m.%Y %H:%M') }}</td>

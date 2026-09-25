@@ -57,7 +57,7 @@
                         {% for dt in downtimes %}
                         <tr>
                             <td>{{ dt.id }}</td>
-                            <td>{{ dt.ship.name }}</td>
+                            <td><span class="ship-info-link" data-ship-id="{{ dt.ship_id }}">{{ dt.ship.name }}</span></td>
                             <td>{{ dt.start_time.strftime('%d.%m.%Y %H:%M') }}</td>
                             <td>{{ dt.end_time.strftime('%d.%m.%Y %H:%M') if dt.end_time else '-' }}</td>
                             <td>{{ ((dt.end_time - dt.start_time).total_seconds() / 3600)|round(1) if dt.end_time else 0 }}</td>

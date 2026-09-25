@@ -13,6 +13,7 @@ from kpi_calculator import KPICalculator
 from report_generator import ReportGenerator
 from file_uploader import FileUploader
 from utils import validate_description, calculate_duration_hours
+from ship_info import SHIP_FIELDS, CORE_CHOICES, REFERENCE, find_reference, get_ship_info, has_ship_info, ensure_ship_columns
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -28,6 +29,7 @@ os.makedirs('reports', exist_ok=True)
 # Создание таблиц БД
 with app.app_context():
     db.create_all()
+    ensure_ship_columns(db)
     create_default_users()
 
 # ==================== ОБЩИЕ МАРШРУТЫ ====================
@@ -554,8 +556,8 @@ def admin_ship_create():
     log_audit(current_user.id, current_user.username, 'create_ship', 'ship', 
               ship.id, f'Создано судно {ship.name}', request.remote_addr)
     
-    flash('Судно добавлено', 'success')
-    return redirect(url_for('admin_ships'))
+    flash('Судно добавлено. Заполните его характеристики.', 'success')
+    return redirect(url_for('admin_ship_characteristics', ship_id=ship.id))
 
 @app.route('/admin/ship/<int:ship_id>/edit', methods=['POST'])
 @login_required
@@ -578,6 +580,44 @@ def admin_ship_edit(ship_id):
     
     flash('Судно обновлено', 'success')
     return redirect(url_for('admin_ships'))
+
+@app.route('/admin/ship/<int:ship_id>/characteristics', methods=['GET', 'POST'])
+@login_required
+@engineer_required
+def admin_ship_characteristics(ship_id):
+    ship = Ship.query.get_or_404(ship_id)
+    values = {key: getattr(ship, key) or '' for key, _, _ in SHIP_FIELDS}
+
+    if request.method == 'POST':
+        values = {key: (request.form.get(key) or '').strip() for key, _, _ in SHIP_FIELDS}
+        errors = []
+        for key, label, _ in SHIP_FIELDS:
+            max_len = Ship.__table__.c[key].type.length
+            if len(values[key]) > max_len:
+                errors.append(f'Поле «{label}» не должно быть длиннее {max_len} символов')
+        if values['core'] and values['core'] not in CORE_CHOICES:
+            errors.append('Некорректное значение поля «Рабочее ядро»')
+
+        if not errors:
+            for key, _, _ in SHIP_FIELDS:
+                setattr(ship, key, values[key] or None)
+            db.session.commit()
+            log_audit(current_user.id, current_user.username, 'edit_ship_characteristics', 'ship',
+                      ship.id, f'Изменены характеристики судна {ship.name}', request.remote_addr)
+            flash('Характеристики судна сохранены', 'success')
+            return redirect(url_for('admin_ships'))
+
+        for error in errors:
+            flash(error, 'danger')
+
+    reference = find_reference(ship.name)
+    return render_template('admin/ship_characteristics.html',
+                           ship=ship,
+                           fields=SHIP_FIELDS,
+                           values=values,
+                           core_choices=CORE_CHOICES,
+                           reference_list=REFERENCE,
+                           suggested=reference['name'] if reference else '')
 
 @app.route('/admin/ship/<int:ship_id>/toggle', methods=['POST'])
 @login_required
@@ -722,6 +762,18 @@ def api_downtime_detail(downtime_id):
         'description': downtime.description,
         'status': downtime.status,
         'files': [{'filename': f.filename, 'filepath': f.filepath} for f in downtime.files]
+    })
+
+@app.route('/api/ships/<int:ship_id>/info')
+@login_required
+def api_ship_info(ship_id):
+    ship = Ship.query.get_or_404(ship_id)
+    can_edit = current_user.role in (Config.ROLE_ENGINEER, Config.ROLE_ADMIN)
+    return jsonify({
+        'ship_name': ship.name,
+        'filled': has_ship_info(ship),
+        'fields': get_ship_info(ship),
+        'edit_url': url_for('admin_ship_characteristics', ship_id=ship.id) if can_edit else None
     })
 
 @app.route('/api/downtimes/bulk-approve', methods=['POST'])

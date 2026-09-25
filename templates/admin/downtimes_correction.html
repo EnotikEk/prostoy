@@ -62,7 +62,7 @@
                         <tr>
                             <td class="text-center">{{ dt.id }}</td>
                             <td>
-                                <strong>{{ dt.ship.name if dt.ship else 'Неизвестно' }}</strong>
+                                <strong class="ship-info-link" data-ship-id="{{ dt.ship_id }}">{{ dt.ship.name if dt.ship else 'Неизвестно' }}</strong>
                                 <br><small class="text-muted">Группа: {{ dt.ship.group if dt.ship else '-' }}</small>
                             </td>
                             <td>{{ dt.start_time.strftime('%d.%m.%Y %H:%M') if dt.start_time else '-' }}</td>

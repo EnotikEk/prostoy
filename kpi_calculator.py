@@ -124,6 +124,7 @@ class KPICalculator:
                 kg_ship = 0.0
             
             ships_data.append({
+                'ship_id': ship.id,
                 'ship_name': ship.name,
                 'planned_hours': round(planned_hours, 2),
                 'unplanned_hours': round(unplanned_hours, 2),
