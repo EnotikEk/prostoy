@@ -13,7 +13,7 @@ from kpi_calculator import KPICalculator
 from report_generator import ReportGenerator
 from file_uploader import FileUploader
 from utils import validate_description, calculate_duration_hours
-from ship_info import SHIP_FIELDS, CORE_CHOICES, REFERENCE, find_reference, get_ship_info, has_ship_info, ensure_ship_columns
+from ship_info import SHIP_FIELDS, CORE_CHOICES, REFERENCE, IMPORT_SHEET, find_reference, get_ship_info, has_ship_info, ensure_ship_columns, name_key, parse_ship_excel
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -530,7 +530,8 @@ def admin_user_assign_ship(user_id):
 @engineer_required
 def admin_ships():
     ships = Ship.query.all()
-    return render_template('admin/ships.html', ships=ships)
+    return render_template('admin/ships.html', ships=ships, import_sheet=IMPORT_SHEET,
+                           current_year=datetime.now().year)
 
 @app.route('/admin/ship/create', methods=['POST'])
 @login_required
@@ -579,6 +580,75 @@ def admin_ship_edit(ship_id):
     db.session.commit()
     
     flash('Судно обновлено', 'success')
+    return redirect(url_for('admin_ships'))
+
+@app.route('/admin/ships/import', methods=['POST'])
+@login_required
+@engineer_required
+def admin_ships_import():
+    file = request.files.get('file')
+    if not file or not file.filename:
+        flash('Выберите файл Excel', 'danger')
+        return redirect(url_for('admin_ships'))
+    if not file.filename.lower().endswith(('.xlsx', '.xlsm')):
+        flash('Поддерживаются только файлы .xlsx (старый формат .xls пересохраните в Excel как .xlsx)', 'danger')
+        return redirect(url_for('admin_ships'))
+
+    # Параметры для новых судов: в таблице нет группы и сроков навигации
+    group = request.form.get('group', 'A')
+    try:
+        nav_start = datetime.strptime(request.form.get('navigation_start'), '%Y-%m-%d')
+        nav_end = datetime.strptime(request.form.get('navigation_end'), '%Y-%m-%d')
+    except (TypeError, ValueError):
+        flash('Укажите сроки навигации для новых судов', 'danger')
+        return redirect(url_for('admin_ships'))
+    if group not in ('A', 'B', 'C') or nav_end <= nav_start:
+        flash('Проверьте группу и сроки навигации для новых судов', 'danger')
+        return redirect(url_for('admin_ships'))
+
+    try:
+        rows, warnings = parse_ship_excel(file)
+    except ValueError as e:
+        flash(str(e), 'danger')
+        return redirect(url_for('admin_ships'))
+
+    existing = {}
+    for ship in Ship.query.all():
+        existing.setdefault(name_key(ship.name), ship)
+
+    created, updated = [], []
+    for row in rows:
+        ship = existing.get(name_key(row['name']))
+        if ship is None:
+            ship = Ship(
+                name=row['name'],
+                group=group,
+                navigation_start=nav_start,
+                navigation_end=nav_end,
+                planned_downtime_hours=(nav_end - nav_start).days * 24,
+                is_active=True
+            )
+            db.session.add(ship)
+            existing[name_key(row['name'])] = ship
+            created.append(row['name'])
+        else:
+            updated.append(ship.name)
+        # Пустые ячейки не затирают уже введённые данные
+        for key, _, _ in SHIP_FIELDS:
+            value = row[key][:Ship.__table__.c[key].type.length]
+            if value:
+                setattr(ship, key, value)
+
+    db.session.commit()
+    log_audit(current_user.id, current_user.username, 'import_ships', 'ship', 0,
+              f'Импорт из Excel «{file.filename}»: создано {len(created)}, обновлено {len(updated)}',
+              request.remote_addr)
+
+    flash(f'Импорт завершён: создано судов — {len(created)}, обновлено — {len(updated)}', 'success')
+    if created:
+        flash('Новые суда: ' + ', '.join(created), 'info')
+    for warning in warnings:
+        flash(warning, 'warning')
     return redirect(url_for('admin_ships'))
 
 @app.route('/admin/ship/<int:ship_id>/characteristics', methods=['GET', 'POST'])

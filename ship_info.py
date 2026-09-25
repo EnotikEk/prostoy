@@ -1,7 +1,11 @@
 """Характеристики судов: список полей и справочник из таблицы "Информация по судам"."""
 import re
+from datetime import date, datetime
 
+from openpyxl import load_workbook
 from sqlalchemy import inspect, text
+
+IMPORT_SHEET = 'Информация по судам'
 
 # (поле модели Ship, подпись, подсказка в форме)
 SHIP_FIELDS = [
@@ -111,3 +115,110 @@ def ensure_ship_columns(db):
         for key in missing:
             length = db.Model.metadata.tables['ships'].c[key].type.length
             conn.execute(text(f'ALTER TABLE ships ADD COLUMN {key} VARCHAR({length})'))
+
+
+# ==================== ИМПОРТ ИЗ EXCEL ====================
+
+# Признаки заголовков столбцов (после приведения к нижнему регистру и одному пробелу)
+_HEADER_MATCHERS = {
+    'number': lambda h: h in ('№', '№ п/п', 'n'),
+    'name': lambda h: h == 'судно',
+    'core': lambda h: 'рабочее ядро' in h,
+    'build_year': lambda h: 'год постройки' in h,
+    'gross_tonnage': lambda h: 'валовая вместимость' in h,
+    'rko_class': lambda h: h.startswith('класс'),
+    'id_number': lambda h: 'идентификационный номер' in h,
+    'annual_rko': lambda h: 'ежегодное рко' in h,
+    'sub': lambda h: h == 'суб',
+    'min_crew_cert': lambda h: 'минимальном составе' in h,
+    'dimensions': lambda h: h.startswith('габариты'),
+}
+
+
+def _norm_header(value):
+    return re.sub(r'\s+', ' ', str(value or '')).strip().lower().replace('ё', 'е')
+
+
+def _cell_text(value):
+    """Значение ячейки в виде текста: даты -> дд.мм.гггг, 139.87 -> 139,87."""
+    if value is None:
+        return ''
+    if isinstance(value, (datetime, date)):
+        return value.strftime('%d.%m.%Y')
+    if isinstance(value, float):
+        return str(int(value)) if value.is_integer() else f'{value:g}'.replace('.', ',')
+    return re.sub(r'\s+', ' ', str(value)).strip()
+
+
+def _normalize_core(value):
+    code = re.sub(r'[\s.]', '', value).upper()
+    return {'РЯ': 'Р.Я', 'НЯ': 'Н.Я'}.get(code, value)
+
+
+def _clean_name(value):
+    """'Ирма перевели из Вытегры' -> 'Ирма', 'СЗ - 502' -> 'СЗ-502'."""
+    name = _cell_text(value)
+    name = re.sub(r'\s*переве\w*\s+из\s+\S+\s*$', '', name, flags=re.IGNORECASE)
+    name = re.sub(r'\s*-+\s*', '-', name)
+    return name.strip()
+
+
+def _find_header(rows):
+    for idx, row in enumerate(rows[:30]):
+        headers = [_norm_header(v) for v in row]
+        if 'судно' not in headers:
+            continue
+        columns = {}
+        for col, header in enumerate(headers):
+            for key, matches in _HEADER_MATCHERS.items():
+                if key not in columns and header and matches(header):
+                    columns[key] = col
+                    break
+        return idx, columns
+    return None, {}
+
+
+def parse_ship_excel(file_storage):
+    """Читает лист "Информация по судам". Возвращает (список судов, список предупреждений)."""
+    try:
+        wb = load_workbook(file_storage, data_only=True, read_only=True)
+    except Exception:
+        raise ValueError('Не удалось открыть файл. Нужен файл Excel в формате .xlsx')
+    try:
+        sheet_name = next((n for n in wb.sheetnames if n.strip().lower() == IMPORT_SHEET.lower()), None)
+        if sheet_name is None:
+            raise ValueError(f'В файле нет листа «{IMPORT_SHEET}»')
+        rows = [list(r) for r in wb[sheet_name].iter_rows(values_only=True)]
+    finally:
+        wb.close()
+
+    header_idx, columns = _find_header(rows)
+    if header_idx is None:
+        raise ValueError(f'На листе «{IMPORT_SHEET}» не найдена строка заголовков со столбцом «Судно»')
+
+    ships, warnings, seen = [], [], set()
+    for line_no, raw in enumerate(rows[header_idx + 1:], start=header_idx + 2):
+        get = lambda key: _cell_text(raw[columns[key]]) if key in columns and columns[key] < len(raw) else ''
+        name = _clean_name(get('name'))
+        if not name:
+            continue
+        # Строки легенды и примечаний под таблицей: без номера и без признака ядра
+        core = _normalize_core(get('core'))
+        if 'number' in columns and not get('number') and core not in CORE_CHOICES:
+            continue
+        if get('build_year').lower() == 'повторно':
+            continue
+        key = name_key(name)
+        if key in seen:
+            warnings.append(f'Строка {line_no}: судно «{name}» встречается повторно — пропущено')
+            continue
+        seen.add(key)
+
+        item = {'name': name}
+        for field, _, _ in SHIP_FIELDS:
+            item[field] = core if field == 'core' else get(field)
+        ships.append(item)
+
+    if not ships:
+        raise ValueError(f'На листе «{IMPORT_SHEET}» не найдено ни одного судна')
+    return ships, warnings

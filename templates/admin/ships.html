@@ -44,8 +44,11 @@
     </div>
 
     <div class="card">
-        <div class="card-header">
+        <div class="card-header d-flex justify-content-between align-items-center">
             <h4 class="mb-0"><i class="fas fa-list me-2"></i> Список судов</h4>
+            <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#importShipsModal">
+                <i class="fas fa-file-excel me-1"></i> Импорт из Excel
+            </button>
         </div>
         <div class="card-body table-responsive">
             <table class="table table-striped table-hover">
@@ -118,7 +121,62 @@
     </div>
 </div>
 
+<!-- Импорт судов из Excel -->
+<div class="modal fade" id="importShipsModal" tabindex="-1" aria-labelledby="importShipsModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <form method="POST" action="{{ url_for('admin_ships_import') }}" enctype="multipart/form-data" class="modal-content" id="importShipsForm">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title" id="importShipsModalLabel"><i class="fas fa-file-excel me-2"></i> Импорт судов из Excel</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label fw-bold" for="importFile">Файл Excel (.xlsx)</label>
+                    <input type="file" name="file" id="importFile" class="form-control" accept=".xlsx,.xlsm" required>
+                    <small class="text-muted">Данные берутся с листа «{{ import_sheet }}».</small>
+                </div>
+                <div class="alert alert-info small">
+                    Суда, которые уже есть в списке, будут обновлены: их характеристики заменятся данными из таблицы
+                    (пустые ячейки не стирают уже введённые значения). Остальные суда будут созданы.
+                </div>
+                <p class="fw-bold mb-2">Для новых судов:</p>
+                <div class="row g-2">
+                    <div class="col-4">
+                        <label class="form-label small">Группа</label>
+                        <select name="group" class="form-select" required>
+                            <option value="A">A</option>
+                            <option value="B">B</option>
+                            <option value="C">C</option>
+                        </select>
+                    </div>
+                    <div class="col-4">
+                        <label class="form-label small">Начало навигации</label>
+                        <input type="date" name="navigation_start" class="form-control" value="{{ current_year }}-01-01" required>
+                    </div>
+                    <div class="col-4">
+                        <label class="form-label small">Конец навигации</label>
+                        <input type="date" name="navigation_end" class="form-control" value="{{ current_year }}-12-31" required>
+                    </div>
+                </div>
+                <small class="text-muted">Группу и сроки навигации потом можно изменить для каждого судна отдельно.</small>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                <button type="submit" class="btn btn-success" id="importShipsSubmit">
+                    <i class="fas fa-upload me-1"></i> Импортировать
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <script>
+document.getElementById('importShipsForm').addEventListener('submit', function() {
+    const btn = document.getElementById('importShipsSubmit');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Импорт...';
+});
+
 // Функция расчета планового времени
 function calculatePlannedHours(startDate, endDate) {
     if (!startDate || !endDate) return 0;
