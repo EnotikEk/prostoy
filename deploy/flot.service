@@ -1,0 +1,22 @@
+# Служба systemd для приложения «Управление простоями флота».
+# Установка: sudo cp deploy/flot.service /etc/systemd/system/flot.service
+#            sudo systemctl daemon-reload && sudo systemctl enable --now flot
+[Unit]
+Description=Flot (gunicorn)
+After=network.target
+
+[Service]
+User=ithub
+Group=www-data
+WorkingDirectory=/opt/flot/Flot
+# SECRET_KEY и другие настройки — в файле .env в папке проекта («-»: если файла нет, служба всё равно запустится)
+EnvironmentFile=-/opt/flot/Flot/.env
+ExecStart=/opt/flot/Flot/venv/bin/gunicorn -c gunicorn.conf.py app:app
+ExecReload=/bin/kill -s HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+KillMode=mixed
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

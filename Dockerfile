@@ -12,11 +12,11 @@ RUN apt-get update \
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt gunicorn==23.0.0
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+ENV GUNICORN_BIND=0.0.0.0:5000
 EXPOSE 5000
 
-# Один процесс: SQLite и создание таблиц при старте не рассчитаны на несколько воркеров
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--threads", "4", "--timeout", "120", "app:app"]
+CMD ["gunicorn", "-c", "gunicorn.conf.py", "app:app"]

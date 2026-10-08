@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 from flask import Flask, render_template, redirect, url_for, flash, request, jsonify, send_file
 from flask_login import login_required, current_user
 from werkzeug.security import generate_password_hash
+from werkzeug.middleware.proxy_fix import ProxyFix
 import os
 import mimetypes
 
@@ -19,6 +20,8 @@ from ship_info import SHIP_FIELDS, YES_NO_FIELDS, CORE_CHOICES, REFERENCE, IMPOR
 
 app = Flask(__name__)
 app.config.from_object(Config)
+# За nginx: настоящий IP пользователя (для журнала аудита) и схема http/https берутся из заголовков прокси
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
 # Инициализация
 db.init_app(app)
