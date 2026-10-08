@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+
+{% block title %}Счёт № {{ invoice.number }}{% endblock %}
+
+{% block content %}
+{% set contract = invoice.contract %}
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <a href="{{ url_for('fleet.contract', contract_id=contract.id) }}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-arrow-left me-1"></i> К контракту № {{ contract.number }}</a>
+        <form method="POST" action="{{ url_for('fleet.invoice_delete', invoice_id=invoice.id) }}" onsubmit="return confirm('Удалить счёт?');">
+            <button type="submit" class="btn btn-sm btn-outline-danger"><i class="fas fa-trash me-1"></i> Удалить счёт</button>
+        </form>
+    </div>
+
+    <div class="card">
+        <div class="card-header"><h4 class="mb-0"><i class="fas fa-file-invoice-dollar me-2"></i> Счёт № {{ invoice.number }} по контракту № {{ contract.number }}</h4></div>
+        <div class="card-body">
+            <form method="POST" action="{{ url_for('fleet.invoice_save', contract_id=contract.id) }}" class="row g-3 mb-4">
+                <input type="hidden" name="invoice_id" value="{{ invoice.id }}">
+                <div class="col-md-3">
+                    <label class="form-label">Номер счёта *</label>
+                    <input type="text" name="number" class="form-control" value="{{ invoice.number }}" maxlength="100" required>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Дата</label>
+                    <input type="date" name="invoice_date" class="form-control" value="{{ invoice.invoice_date.isoformat() if invoice.invoice_date else '' }}">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Итог по счёту, руб.</label>
+                    <input type="text" name="stated_total" class="form-control text-end" value="{{ invoice.stated_total|money }}" inputmode="decimal">
+                </div>
+                <div class="col-md-3 d-flex align-items-end">
+                    <button type="submit" class="btn btn-success w-100"><i class="fas fa-save me-1"></i> Сохранить</button>
+                </div>
+            </form>
+
+            {% if invoice.lines %}
+            <div class="alert {{ 'alert-success' if summary.correct else 'alert-danger' }}">
+                {% if summary.correct %}
+                <i class="fas fa-check-circle me-1"></i> Суммы в счёте соответствуют ценам контракта.
+                {% else %}
+                <i class="fas fa-exclamation-circle me-1"></i> Суммы в счёте не соответствуют ценам контракта — расхождения выделены.
+                {% endif %}
+            </div>
+            {% endif %}
+
+            <div class="table-responsive">
+                <table class="table table-bordered align-middle">
+                    <thead>
+                        <tr>
+                            <th>Наименование</th>
+                            <th class="text-end">Цена за ед. по контракту</th>
+                            <th class="text-end">Количество</th>
+                            <th class="text-end">Сумма по счёту</th>
+                            <th class="text-end">Сумма по расчёту</th>
+                            <th class="text-end">Расхождение</th>
+                            <th style="width: 1%;"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in summary.lines %}
+                        {% set line = row.line %}
+                        <tr>
+                            <td>{{ line.price_item.name }}</td>
+                            <td class="text-end">{{ line.price_item.unit_price|money }}{% if line.price_item.unit %} / {{ line.price_item.unit }}{% endif %}</td>
+                            <td class="text-end">{{ line.quantity|qty }}</td>
+                            <td class="text-end {% if row.diff != 0 %}cell-error{% endif %}">{{ line.stated_amount|money }}</td>
+                            <td class="text-end">{{ row.expected|money }}</td>
+                            <td class="text-end {% if row.diff != 0 %}cell-error fw-bold{% endif %}">{% if row.diff != 0 %}{{ row.diff|money }}{% endif %}</td>
+                            <td>
+                                <form method="POST" action="{{ url_for('fleet.invoice_line_delete', line_id=line.id) }}" onsubmit="return confirm('Удалить строку?');">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger"><i class="fas fa-trash"></i></button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                        <tr class="table-light">
+                            <td colspan="7">
+                                <form method="POST" action="{{ url_for('fleet.invoice_line_save', invoice_id=invoice.id) }}" class="row g-2 align-items-end">
+                                    <div class="col-md-5">
+                                        <label class="form-label small">Наименование из базы цен</label>
+                                        <select name="price_item_id" class="form-select form-select-sm searchable" required>
+                                            <option value="">— начните вводить —</option>
+                                            {% for p in contract.prices %}<option value="{{ p.id }}">{{ p.name }} — {{ p.unit_price|money }}{% if p.unit %} / {{ p.unit }}{% endif %}</option>{% endfor %}
+                                        </select>
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label class="form-label small">Количество</label>
+                                        <input type="text" name="quantity" class="form-control form-control-sm text-end" inputmode="decimal" required>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label small">Сумма по счёту, руб.</label>
+                                        <input type="text" name="stated_amount" class="form-control form-control-sm text-end" inputmode="decimal" required>
+                                    </div>
+                                    <div class="col-md-2">
+                                        <button type="submit" class="btn btn-sm btn-success w-100"><i class="fas fa-plus me-1"></i> Добавить</button>
+                                    </div>
+                                </form>
+                                {% if not contract.prices %}<small class="text-danger">Сначала заполните базу цен в контракте.</small>{% endif %}
+                            </td>
+                        </tr>
+                    </tbody>
+                    {% if invoice.lines %}
+                    <tfoot class="fw-bold">
+                        <tr>
+                            <td colspan="3" class="text-end">Итого по строкам</td>
+                            <td class="text-end">{{ summary.stated_lines_total|money }}</td>
+                            <td class="text-end">{{ summary.expected_total|money }}</td>
+                            <td colspan="2"></td>
+                        </tr>
+                        {% if summary.stated_total is not none %}
+                        <tr>
+                            <td colspan="3" class="text-end">Итог по счёту</td>
+                            <td class="text-end {% if summary.total_diff != 0 %}cell-error{% endif %}">{{ summary.stated_total|money }}</td>
+                            <td class="text-end">{{ summary.expected_total|money }}</td>
+                            <td class="text-end {% if summary.total_diff != 0 %}cell-error{% endif %}">{% if summary.total_diff != 0 %}{{ summary.total_diff|money }}{% endif %}</td>
+                            <td></td>
+                        </tr>
+                        {% endif %}
+                    </tfoot>
+                    {% endif %}
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

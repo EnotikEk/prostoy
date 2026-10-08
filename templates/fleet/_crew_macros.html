@@ -1,0 +1,185 @@
+{% macro fmt(d) %}{{ d.strftime('%d.%m.%Y') if d else '' }}{% endmacro %}
+
+{# Таблица экипажа по форме ТЗ: рабочие, учебные дипломы и доп. подготовка — несколько строк на сотрудника #}
+{% macro crew_table(employees, restrictions, show_ship=False, next_url='') %}
+<table class="table table-bordered align-middle crew-table">
+    <thead class="text-center">
+        <tr>
+            <th rowspan="2">ФИО</th>
+            <th rowspan="2">Номер телефона</th>
+            <th rowspan="2">Штатная должность</th>
+            {% if show_ship %}<th rowspan="2">Судно / филиал</th>{% endif %}
+            <th colspan="2">Рабочие дипломы</th>
+            <th>Учебные дипломы</th>
+            <th colspan="2">Доп. подготовка</th>
+            <th>Подтверждение знаний МППСС</th>
+            <th rowspan="2"></th>
+        </tr>
+        <tr>
+            <th>Должность</th>
+            <th>Дата окончания (ограничения)</th>
+            <th>Уровень образования (ДПО, СПО, ПП, ВПО)</th>
+            <th>Наименование</th>
+            <th>Срок</th>
+            <th>Дата выдачи</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for e in employees %}
+        {% set n = [e.work_diplomas|length, e.study_diplomas|length, e.trainings|length, 1]|max %}
+        {% for i in range(n) %}
+        {% set wd = e.work_diplomas[i] if i < e.work_diplomas|length else None %}
+        {% set sd = e.study_diplomas[i] if i < e.study_diplomas|length else None %}
+        {% set tr = e.trainings[i] if i < e.trainings|length else None %}
+        <tr>
+            {% if i == 0 %}
+            <td rowspan="{{ n }}"><a href="{{ url_for('fleet.employee', employee_id=e.id) }}" class="fw-semibold">{{ e.full_name }}</a></td>
+            <td rowspan="{{ n }}" class="text-nowrap">{{ e.phone or '' }}</td>
+            <td rowspan="{{ n }}">{{ e.staff_position.name if e.staff_position else '' }}</td>
+            {% if show_ship %}
+            <td rowspan="{{ n }}">
+                {% if e.ship %}<a href="{{ url_for('fleet.crew', ship_id=e.ship.id) }}">{{ e.ship.name }}</a><br>{% endif %}
+                <small class="text-muted">{{ e.current_branch or '' }}</small>
+            </td>
+            {% endif %}
+            {% endif %}
+            <td>{{ wd.position.name if wd and wd.position else '' }}</td>
+            <td>
+                {% if wd %}
+                {{ fmt(wd.end_date) }}
+                {% for code in wd.restriction_codes %}<div class="small text-danger">{{ restrictions[code] }}</div>{% endfor %}
+                {% endif %}
+            </td>
+            <td class="text-center">{{ sd.level if sd else '' }}</td>
+            <td>{{ tr.name.name if tr and tr.name else '' }}</td>
+            <td>{{ fmt(tr.valid_until) if tr else '' }}</td>
+            {% if i == 0 %}
+            <td rowspan="{{ n }}" class="text-center">{{ fmt(e.mppss_date) }}</td>
+            <td rowspan="{{ n }}" class="text-nowrap">
+                <a href="{{ url_for('fleet.employee', employee_id=e.id) }}" class="btn btn-sm btn-outline-primary" title="Карточка: дипломы и доп. подготовка"><i class="fas fa-edit"></i></a>
+                <button type="button" class="btn btn-sm btn-outline-secondary" title="Перевести"
+                        data-bs-toggle="modal" data-bs-target="#employeeTransferModal"
+                        data-action="{{ url_for('fleet.employee_transfer', employee_id=e.id) }}" data-name="{{ e.full_name }}">
+                    <i class="fas fa-exchange-alt"></i>
+                </button>
+            </td>
+            {% endif %}
+        </tr>
+        {% endfor %}
+        {% else %}
+        <tr><td colspan="{{ 11 if show_ship else 10 }}" class="text-center text-muted py-4">Сотрудников нет</td></tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endmacro %}
+
+{# Окно добавления сотрудника #}
+{% macro employee_modal(positions, ships=None, branches=None, ship=None, next_url='') %}
+<div class="modal fade" id="employeeModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <form method="POST" action="{{ url_for('fleet.employee_save') }}" class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Новый сотрудник</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" name="next" value="{{ next_url }}">
+                <div class="mb-3">
+                    <label class="form-label">ФИО *</label>
+                    <input type="text" name="full_name" class="form-control" maxlength="300" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Номер телефона</label>
+                    <input type="text" name="phone" class="form-control" maxlength="50">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Штатная должность</label>
+                    <select name="staff_position_id" class="form-select searchable">
+                        <option value="">— начните вводить должность —</option>
+                        {% for p in positions %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Подтверждение знаний МППСС — дата выдачи</label>
+                    <input type="date" name="mppss_date" class="form-control">
+                </div>
+                {% if ship %}
+                <input type="hidden" name="ship_id" value="{{ ship.id }}">
+                {% else %}
+                <div class="mb-3">
+                    <label class="form-label">Судно</label>
+                    <select name="ship_id" class="form-select searchable">
+                        <option value="">— без судна —</option>
+                        {% for s in ships %}<option value="{{ s.id }}">{{ s.name }}{% if s.branch %} — {{ s.branch }}{% endif %}</option>{% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label">Филиал (если без судна)</label>
+                    <select name="branch" class="form-select">
+                        <option value="">— не указан —</option>
+                        {% for b in branches %}<option value="{{ b }}">{{ b }}</option>{% endfor %}
+                    </select>
+                </div>
+                {% endif %}
+                <small class="text-muted d-block mt-2">Дипломы и доп. подготовка добавляются в карточке сотрудника после сохранения.</small>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                <button type="submit" class="btn btn-success"><i class="fas fa-save me-1"></i> Сохранить</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endmacro %}
+
+{# Окно перевода сотрудника на другое судно или в другой филиал #}
+{% macro transfer_modal(ships, branches, next_url='') %}
+<div class="modal fade" id="employeeTransferModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <form method="POST" class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Перевод сотрудника</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" name="next" value="{{ next_url }}">
+                <p class="fw-semibold" data-field="name"></p>
+                <div class="mb-3">
+                    <label class="form-label">На судно</label>
+                    <select name="to_ship_id" class="form-select searchable">
+                        <option value="">— без судна (в филиал) —</option>
+                        {% for s in ships %}<option value="{{ s.id }}">{{ s.name }}{% if s.branch %} — {{ s.branch }}{% endif %}</option>{% endfor %}
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">В филиал (если без судна)</label>
+                    <select name="to_branch" class="form-select">
+                        <option value="">— выберите филиал —</option>
+                        {% for b in branches %}<option value="{{ b }}">{{ b }}</option>{% endfor %}
+                    </select>
+                    <small class="text-muted">При переводе на судно филиал берётся из характеристик судна.</small>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Дата перевода</label>
+                    <input type="date" name="transfer_date" class="form-control" value="{{ today_iso }}">
+                </div>
+                <div>
+                    <label class="form-label">Комментарий</label>
+                    <input type="text" name="comment" class="form-control" maxlength="500">
+                </div>
+                <div class="alert alert-info small mt-3 mb-0">Должность сотрудника в штатном расписании прежнего судна станет вакантной.</div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                <button type="submit" class="btn btn-primary"><i class="fas fa-exchange-alt me-1"></i> Перевести</button>
+            </div>
+        </form>
+    </div>
+</div>
+<script>
+document.getElementById('employeeTransferModal').addEventListener('show.bs.modal', function(e) {
+    this.querySelector('form').action = e.relatedTarget.dataset.action;
+    this.querySelector('[data-field="name"]').textContent = e.relatedTarget.dataset.name;
+});
+</script>
+{% endmacro %}

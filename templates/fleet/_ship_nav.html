@@ -1,0 +1,14 @@
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+    <div>
+        <a href="{{ url_for('fleet.ships') }}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-arrow-left me-1"></i> К списку судов</a>
+        <span class="ms-2 fs-5 fw-semibold px-2 rounded {% if ship_level %}exp-{{ ship_level }}{% endif %}" {% if ship_level %}title="{{ expiry_titles[ship_level] }}"{% endif %}>
+            <a href="#" class="ship-info-link text-reset" data-ship-id="{{ ship.id }}">{{ ship.name }}</a>
+        </span>
+        {% if ship.branch %}<span class="text-muted ms-1">— {{ ship.branch }}</span>{% endif %}
+    </div>
+    <ul class="nav nav-pills">
+        <li class="nav-item"><a class="nav-link {% if request.endpoint == 'fleet.aso' %}active{% endif %}" href="{{ url_for('fleet.aso', ship_id=ship.id) }}">Аварийно-спасательное оборудование</a></li>
+        <li class="nav-item"><a class="nav-link {% if request.endpoint == 'fleet.staffing' %}active{% endif %}" href="{{ url_for('fleet.staffing', ship_id=ship.id) }}">Штатное расписание</a></li>
+        <li class="nav-item"><a class="nav-link {% if request.endpoint == 'fleet.crew' %}active{% endif %}" href="{{ url_for('fleet.crew', ship_id=ship.id) }}">Экипаж</a></li>
+    </ul>
+</div>

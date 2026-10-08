@@ -1,0 +1,324 @@
+{% extends "base.html" %}
+{% import 'fleet/_crew_macros.html' as m with context %}
+
+{% block title %}{{ employee.full_name }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+        <div>
+            {% if employee.ship %}
+            <a href="{{ url_for('fleet.crew', ship_id=employee.ship.id) }}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-arrow-left me-1"></i> К экипажу «{{ employee.ship.name }}»</a>
+            {% else %}
+            <a href="{{ url_for('fleet.employees') }}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-arrow-left me-1"></i> К списку сотрудников</a>
+            {% endif %}
+        </div>
+        <div class="d-flex gap-2">
+            <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#employeeTransferModal"
+                    data-action="{{ url_for('fleet.employee_transfer', employee_id=employee.id) }}" data-name="{{ employee.full_name }}">
+                <i class="fas fa-exchange-alt me-1"></i> Перевести
+            </button>
+            <form method="POST" action="{{ url_for('fleet.employee_delete', employee_id=employee.id) }}"
+                  onsubmit="return confirm('Удалить сотрудника {{ employee.full_name|e }} вместе с дипломами?');">
+                <input type="hidden" name="next" value="{{ url_for('fleet.crew', ship_id=employee.ship.id) if employee.ship else url_for('fleet.employees') }}">
+                <button type="submit" class="btn btn-sm btn-outline-danger"><i class="fas fa-trash me-1"></i> Удалить</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h4 class="mb-0"><i class="fas fa-user me-2"></i> {{ employee.full_name }}</h4>
+            <small class="text-white-50">
+                {% if employee.ship %}Судно «{{ employee.ship.name }}»{% else %}Без судна{% endif %}{% if employee.current_branch %}, филиал «{{ employee.current_branch }}»{% endif %}
+                {% for sp in employee.staffing_positions %} · по штатному расписанию: {{ sp.position.name }}{% endfor %}
+            </small>
+        </div>
+        <div class="card-body">
+            <form method="POST" action="{{ url_for('fleet.employee_save') }}" class="row g-3">
+                <input type="hidden" name="employee_id" value="{{ employee.id }}">
+                <div class="col-md-4">
+                    <label class="form-label">ФИО *</label>
+                    <input type="text" name="full_name" class="form-control" value="{{ employee.full_name }}" maxlength="300" required>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Номер телефона</label>
+                    <input type="text" name="phone" class="form-control" value="{{ employee.phone or '' }}" maxlength="50">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Штатная должность</label>
+                    <select name="staff_position_id" class="form-select searchable">
+                        <option value="">— начните вводить должность —</option>
+                        {% for p in positions %}<option value="{{ p.id }}" {% if employee.staff_position_id == p.id %}selected{% endif %}>{{ p.name }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">МППСС — дата выдачи</label>
+                    <input type="date" name="mppss_date" class="form-control" value="{{ employee.mppss_date.isoformat() if employee.mppss_date else '' }}">
+                </div>
+                <div class="col-12">
+                    <button type="submit" class="btn btn-success"><i class="fas fa-save me-1"></i> Сохранить</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- Рабочие дипломы -->
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">Рабочие дипломы</h5>
+                    <button type="button" class="btn btn-light btn-sm" data-bs-toggle="modal" data-bs-target="#workDiplomaModal" data-item=""><i class="fas fa-plus"></i></button>
+                </div>
+                <div class="card-body table-responsive">
+                    <table class="table table-sm table-bordered align-middle mb-0">
+                        <thead><tr><th>Должность</th><th>Дата окончания (ограничения)</th><th style="width: 1%;"></th></tr></thead>
+                        <tbody>
+                            {% for d in employee.work_diplomas %}
+                            <tr>
+                                <td>{{ d.position.name if d.position else '' }}</td>
+                                <td>
+                                    {{ m.fmt(d.end_date) }}
+                                    {% for code in d.restriction_codes %}<div class="small text-danger">{{ restrictions[code] }}</div>{% endfor %}
+                                </td>
+                                <td class="text-nowrap">
+                                    <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#workDiplomaModal"
+                                            data-item='{{ {"diploma_id": d.id, "position_id": d.position_id or "", "end_date": d.end_date.isoformat() if d.end_date else "", "restrictions": d.restriction_codes}|tojson|forceescape }}'>
+                                        <i class="fas fa-edit"></i>
+                                    </button>
+                                    <form method="POST" action="{{ url_for('fleet.employee_child_delete', kind='work-diploma', child_id=d.id) }}" class="d-inline" onsubmit="return confirm('Удалить рабочий диплом?');">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger"><i class="fas fa-trash"></i></button>
+                                    </form>
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr><td colspan="3" class="text-muted text-center">Нет</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Учебные дипломы -->
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">Учебные дипломы</h5>
+                    <button type="button" class="btn btn-light btn-sm" data-bs-toggle="modal" data-bs-target="#studyDiplomaModal" data-item=""><i class="fas fa-plus"></i></button>
+                </div>
+                <div class="card-body table-responsive">
+                    <table class="table table-sm table-bordered align-middle mb-0">
+                        <thead><tr><th>Уровень образования (ДПО, СПО, ПП, ВПО)</th><th style="width: 1%;"></th></tr></thead>
+                        <tbody>
+                            {% for d in employee.study_diplomas %}
+                            <tr>
+                                <td>{{ d.level }}</td>
+                                <td class="text-nowrap">
+                                    <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#studyDiplomaModal"
+                                            data-item='{{ {"diploma_id": d.id, "level": d.level}|tojson|forceescape }}'>
+                                        <i class="fas fa-edit"></i>
+                                    </button>
+                                    <form method="POST" action="{{ url_for('fleet.employee_child_delete', kind='study-diploma', child_id=d.id) }}" class="d-inline" onsubmit="return confirm('Удалить учебный диплом?');">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger"><i class="fas fa-trash"></i></button>
+                                    </form>
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr><td colspan="2" class="text-muted text-center">Нет</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Доп. подготовка -->
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">Доп. подготовка</h5>
+                    <button type="button" class="btn btn-light btn-sm" data-bs-toggle="modal" data-bs-target="#trainingModal" data-item=""><i class="fas fa-plus"></i></button>
+                </div>
+                <div class="card-body table-responsive">
+                    <table class="table table-sm table-bordered align-middle mb-0">
+                        <thead><tr><th>Наименование</th><th>Срок</th><th style="width: 1%;"></th></tr></thead>
+                        <tbody>
+                            {% for t in employee.trainings %}
+                            <tr>
+                                <td>{{ t.name.name if t.name else '' }}</td>
+                                <td>{{ m.fmt(t.valid_until) }}</td>
+                                <td class="text-nowrap">
+                                    <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#trainingModal"
+                                            data-item='{{ {"training_id": t.id, "name_id": t.name_id or "", "valid_until": t.valid_until.isoformat() if t.valid_until else ""}|tojson|forceescape }}'>
+                                        <i class="fas fa-edit"></i>
+                                    </button>
+                                    <form method="POST" action="{{ url_for('fleet.employee_child_delete', kind='training', child_id=t.id) }}" class="d-inline" onsubmit="return confirm('Удалить доп. подготовку?');">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger"><i class="fas fa-trash"></i></button>
+                                    </form>
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr><td colspan="3" class="text-muted text-center">Нет</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    {% if not trainings_dict %}
+                    <small class="text-muted">Список наименований пуст — добавьте их в <a href="{{ url_for('fleet.dictionaries') }}">справочнике</a>.</small>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- История переводов -->
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header"><h5 class="mb-0">История переводов</h5></div>
+                <div class="card-body table-responsive">
+                    <table class="table table-sm table-striped mb-0">
+                        <thead><tr><th>Дата</th><th>Откуда</th><th>Куда</th><th>Комментарий</th></tr></thead>
+                        <tbody>
+                            {% for t in employee.transfers %}
+                            <tr>
+                                <td>{{ m.fmt(t.transfer_date) }}</td>
+                                <td>{{ t.from_ship.name if t.from_ship else '' }}<br><small class="text-muted">{{ t.from_branch or '' }}</small></td>
+                                <td>{{ t.to_ship.name if t.to_ship else '' }}<br><small class="text-muted">{{ t.to_branch or '' }}</small></td>
+                                <td>{{ t.comment or '' }}<br><small class="text-muted">{{ t.user.full_name if t.user else '' }}</small></td>
+                            </tr>
+                            {% else %}
+                            <tr><td colspan="4" class="text-muted text-center">Переводов не было</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Рабочий диплом -->
+<div class="modal fade" id="workDiplomaModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <form method="POST" action="{{ url_for('fleet.work_diploma_save', employee_id=employee.id) }}" class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Рабочий диплом</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" name="diploma_id">
+                <div class="row g-3">
+                    <div class="col-md-8">
+                        <label class="form-label">Должность *</label>
+                        <select name="position_id" class="form-select searchable" required>
+                            <option value="">— начните вводить должность —</option>
+                            {% for p in positions %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Дата окончания</label>
+                        <input type="date" name="end_date" class="form-control">
+                    </div>
+                </div>
+                <label class="form-label mt-3">Ограничения</label>
+                {% for code, title in restrictions.items() %}
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" name="restrictions" value="{{ code }}" id="restr-{{ code }}">
+                    <label class="form-check-label" for="restr-{{ code }}">{{ title }}</label>
+                </div>
+                {% endfor %}
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                <button type="submit" class="btn btn-success"><i class="fas fa-save me-1"></i> Сохранить</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Учебный диплом -->
+<div class="modal fade" id="studyDiplomaModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <form method="POST" action="{{ url_for('fleet.study_diploma_save', employee_id=employee.id) }}" class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Учебный диплом</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" name="diploma_id">
+                <label class="form-label">Уровень образования *</label>
+                <select name="level" class="form-select" required>
+                    <option value="">— выберите —</option>
+                    {% for level in education_levels %}<option value="{{ level }}">{{ level }}</option>{% endfor %}
+                </select>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                <button type="submit" class="btn btn-success"><i class="fas fa-save me-1"></i> Сохранить</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Доп. подготовка -->
+<div class="modal fade" id="trainingModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <form method="POST" action="{{ url_for('fleet.training_save', employee_id=employee.id) }}" class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Доп. подготовка</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" name="training_id">
+                <div class="mb-3">
+                    <label class="form-label">Наименование *</label>
+                    <select name="name_id" class="form-select searchable" required>
+                        <option value="">— начните вводить наименование —</option>
+                        {% for t in trainings_dict %}<option value="{{ t.id }}">{{ t.name }}</option>{% endfor %}
+                    </select>
+                    <small class="text-muted">Наименования редактируются в <a href="{{ url_for('fleet.dictionaries') }}">справочнике</a>.</small>
+                </div>
+                <div>
+                    <label class="form-label">Срок</label>
+                    <input type="date" name="valid_until" class="form-control">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                <button type="submit" class="btn btn-success"><i class="fas fa-save me-1"></i> Сохранить</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{{ m.transfer_modal(ships, branches, next_url=request.path) }}
+
+<script>
+// Заполнение окон редактирования из data-item кнопки
+function bindItemModal(modalId, fill) {
+    document.getElementById(modalId).addEventListener('show.bs.modal', function(e) {
+        const form = this.querySelector('form');
+        const data = e.relatedTarget.dataset.item ? JSON.parse(e.relatedTarget.dataset.item) : {};
+        form.reset();
+        fill(form, data);
+    });
+}
+const setSelect = (select, value) => select.tomselect ? select.tomselect.setValue(value ? String(value) : '', true) : (select.value = value || '');
+
+bindItemModal('workDiplomaModal', function(form, d) {
+    form.diploma_id.value = d.diploma_id || '';
+    setSelect(form.position_id, d.position_id);
+    form.end_date.value = d.end_date || '';
+    form.querySelectorAll('input[name="restrictions"]').forEach(cb => cb.checked = (d.restrictions || []).includes(cb.value));
+});
+bindItemModal('studyDiplomaModal', function(form, d) {
+    form.diploma_id.value = d.diploma_id || '';
+    form.level.value = d.level || '';
+});
+bindItemModal('trainingModal', function(form, d) {
+    form.training_id.value = d.training_id || '';
+    setSelect(form.name_id, d.name_id);
+    form.valid_until.value = d.valid_until || '';
+});
+</script>
+{% endblock %}

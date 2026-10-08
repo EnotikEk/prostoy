@@ -1,0 +1,14 @@
+services:
+  prostoy:
+    build: .
+    container_name: prostoy
+    ports:
+      - "5001:5000"   # http://localhost:5001 (порт 5000 остаётся свободным для другой программы)
+    volumes:
+      # База, загруженные файлы и отчёты хранятся в папке проекта и не теряются при пересборке
+      - ./instance:/app/instance
+      - ./uploads:/app/uploads
+      - ./reports:/app/reports
+    environment:
+      - TZ=Europe/Moscow
+    restart: unless-stopped

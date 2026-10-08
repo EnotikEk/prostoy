@@ -11,6 +11,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/css/tom-select.bootstrap5.min.css" rel="stylesheet">
     <style>
         body { background-color: #f0f2f5; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         .sidebar { background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); min-height: calc(100vh - 56px); border-radius: 0; }
@@ -18,6 +19,10 @@
         .sidebar .list-group-item:hover { background: rgba(255,255,255,0.2); transform: translateX(5px); }
         .sidebar .list-group-item i { margin-right: 10px; width: 25px; }
         .sidebar .list-group-item.active { background: rgba(255,255,255,0.3); font-weight: bold; }
+        .sidebar .sidebar-group-toggle { display: flex; align-items: center; }
+        .sidebar .sidebar-chevron { margin: 0 0 0 auto !important; width: auto !important; font-size: 0.8rem; transition: transform 0.3s; }
+        .sidebar .sidebar-group-toggle.collapsed .sidebar-chevron { transform: rotate(-90deg); }
+        .sidebar .sidebar-subitem { padding-left: 40px; font-size: 0.95rem; background: rgba(0,0,0,0.1); }
         .card { border-radius: 15px; box-shadow: 0 5px 20px rgba(0,0,0,0.08); border: none; margin-bottom: 20px; }
         .card-header { background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); color: white; border-radius: 15px 15px 0 0 !important; padding: 15px 20px; font-weight: 600; }
         .table { background: white; border-radius: 10px; overflow: hidden; }
@@ -43,7 +48,16 @@
         .login-container { min-height: 100vh; background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); }
         .table-responsive { border-radius: 10px; overflow-x: auto; }
         .alert { border-radius: 10px; }
+        /* Подсветка сроков: год, полгода, месяц до даты и наступившая дата */
+        .exp-year { background-color: #fff176 !important; }
+        .exp-half { background-color: #ffb74d !important; }
+        .exp-month { background-color: #e53935 !important; color: #fff !important; }
+        .exp-expired { background-color: #800020 !important; color: #fff !important; }
+        .exp-year a, .exp-half a { color: inherit; }
+        .exp-month a, .exp-expired a { color: #fff; }
+        .table td.cell-error { background-color: #f8d7da !important; color: #842029; }
     </style>
+    {% block head %}{% endblock %}
 </head>
 <body>
     {% if current_user.is_authenticated %}
@@ -90,15 +104,43 @@
                         </a>
                     {% elif current_user.role == 'engineer' %}
                         <!-- Меню инженера -->
-                        <a href="{{ url_for('engineer_pending') }}" class="list-group-item list-group-item-action">
-                            <i class="fas fa-clock"></i> На утверждение
+                        <!-- Группа «Простои» -->
+                        {% set downtimes_open = request.endpoint in ['engineer_pending', 'engineer_downtimes', 'admin_downtimes_correction'] %}
+                        <a href="#downtimesGroup" class="list-group-item list-group-item-action sidebar-group-toggle {% if not downtimes_open %}collapsed{% endif %}" data-bs-toggle="collapse" role="button" aria-expanded="{{ 'true' if downtimes_open else 'false' }}" aria-controls="downtimesGroup">
+                            <i class="fas fa-anchor"></i> Простои
+                            <i class="fas fa-chevron-down sidebar-chevron"></i>
                         </a>
+                        <div class="collapse {% if downtimes_open %}show{% endif %}" id="downtimesGroup">
+                            <a href="{{ url_for('engineer_pending') }}" class="list-group-item list-group-item-action sidebar-subitem {% if request.endpoint == 'engineer_pending' %}active{% endif %}">
+                                <i class="fas fa-clock"></i> На утверждение
+                            </a>
+                            <a href="{{ url_for('engineer_downtimes') }}" class="list-group-item list-group-item-action sidebar-subitem {% if request.endpoint == 'engineer_downtimes' %}active{% endif %}">
+                                <i class="fas fa-database"></i> Реестр простоев
+                            </a>
+                        </div>
                         <a href="{{ url_for('engineer_dashboard_page') }}" class="list-group-item list-group-item-action">
                             <i class="fas fa-chart-line"></i> Дашборд КПЭ №5
                         </a>
-                        <a href="{{ url_for('engineer_downtimes') }}" class="list-group-item list-group-item-action">
-                            <i class="fas fa-database"></i> Реестр простоев
+                        <!-- Группа «Суда и документы» -->
+                        {% set fleet_open = request.blueprint == 'fleet' %}
+                        <a href="#fleetGroup" class="list-group-item list-group-item-action sidebar-group-toggle {% if not fleet_open %}collapsed{% endif %}" data-bs-toggle="collapse" role="button" aria-expanded="{{ 'true' if fleet_open else 'false' }}" aria-controls="fleetGroup">
+                            <i class="fas fa-life-ring"></i> Суда и документы
+                            <i class="fas fa-chevron-down sidebar-chevron"></i>
                         </a>
+                        <div class="collapse {% if fleet_open %}show{% endif %}" id="fleetGroup">
+                            <a href="{{ url_for('fleet.ships') }}" class="list-group-item list-group-item-action sidebar-subitem {% if request.endpoint in ['fleet.ships', 'fleet.aso', 'fleet.staffing', 'fleet.crew'] %}active{% endif %}">
+                                <i class="fas fa-ship"></i> Список судов
+                            </a>
+                            <a href="{{ url_for('fleet.employees') }}" class="list-group-item list-group-item-action sidebar-subitem {% if request.endpoint in ['fleet.employees', 'fleet.employee'] %}active{% endif %}">
+                                <i class="fas fa-id-card"></i> Сотрудники
+                            </a>
+                            <a href="{{ url_for('fleet.contracts') }}" class="list-group-item list-group-item-action sidebar-subitem {% if request.endpoint in ['fleet.contracts', 'fleet.contract', 'fleet.invoice'] %}active{% endif %}">
+                                <i class="fas fa-file-invoice-dollar"></i> Контракты АСО
+                            </a>
+                            <a href="{{ url_for('fleet.dictionaries') }}" class="list-group-item list-group-item-action sidebar-subitem {% if request.endpoint == 'fleet.dictionaries' %}active{% endif %}">
+                                <i class="fas fa-book"></i> Справочники
+                            </a>
+                        </div>
                         <a href="{{ url_for('admin_ships') }}" class="list-group-item list-group-item-action">
                             <i class="fas fa-ship"></i> Управление судами
                         </a>
@@ -107,15 +149,46 @@
                         </a>
                     {% elif current_user.role == 'admin' %}
                         <!-- Меню администратора -->
-                        <a href="{{ url_for('engineer_pending') }}" class="list-group-item list-group-item-action">
-                            <i class="fas fa-clock"></i> На утверждение
+                        <!-- Группа «Простои» -->
+                        {% set downtimes_open = request.endpoint in ['engineer_pending', 'engineer_downtimes', 'admin_downtimes_correction'] %}
+                        <a href="#downtimesGroup" class="list-group-item list-group-item-action sidebar-group-toggle {% if not downtimes_open %}collapsed{% endif %}" data-bs-toggle="collapse" role="button" aria-expanded="{{ 'true' if downtimes_open else 'false' }}" aria-controls="downtimesGroup">
+                            <i class="fas fa-anchor"></i> Простои
+                            <i class="fas fa-chevron-down sidebar-chevron"></i>
                         </a>
+                        <div class="collapse {% if downtimes_open %}show{% endif %}" id="downtimesGroup">
+                            <a href="{{ url_for('engineer_pending') }}" class="list-group-item list-group-item-action sidebar-subitem {% if request.endpoint == 'engineer_pending' %}active{% endif %}">
+                                <i class="fas fa-clock"></i> На утверждение
+                            </a>
+                            <a href="{{ url_for('engineer_downtimes') }}" class="list-group-item list-group-item-action sidebar-subitem {% if request.endpoint == 'engineer_downtimes' %}active{% endif %}">
+                                <i class="fas fa-database"></i> Реестр простоев
+                            </a>
+                            <a href="{{ url_for('admin_downtimes_correction') }}" class="list-group-item list-group-item-action sidebar-subitem {% if request.endpoint == 'admin_downtimes_correction' %}active{% endif %}">
+                                <i class="fas fa-tools"></i> Корректировка простоев
+                            </a>
+                        </div>
                         <a href="{{ url_for('engineer_dashboard_page') }}" class="list-group-item list-group-item-action">
                             <i class="fas fa-chart-line"></i> Дашборд КПЭ №5
                         </a>
-                        <a href="{{ url_for('engineer_downtimes') }}" class="list-group-item list-group-item-action">
-                            <i class="fas fa-database"></i> Реестр простоев
+                        <!-- Группа «Суда и документы» -->
+                        {% set fleet_open = request.blueprint == 'fleet' %}
+                        <a href="#fleetGroup" class="list-group-item list-group-item-action sidebar-group-toggle {% if not fleet_open %}collapsed{% endif %}" data-bs-toggle="collapse" role="button" aria-expanded="{{ 'true' if fleet_open else 'false' }}" aria-controls="fleetGroup">
+                            <i class="fas fa-life-ring"></i> Суда и документы
+                            <i class="fas fa-chevron-down sidebar-chevron"></i>
                         </a>
+                        <div class="collapse {% if fleet_open %}show{% endif %}" id="fleetGroup">
+                            <a href="{{ url_for('fleet.ships') }}" class="list-group-item list-group-item-action sidebar-subitem {% if request.endpoint in ['fleet.ships', 'fleet.aso', 'fleet.staffing', 'fleet.crew'] %}active{% endif %}">
+                                <i class="fas fa-ship"></i> Список судов
+                            </a>
+                            <a href="{{ url_for('fleet.employees') }}" class="list-group-item list-group-item-action sidebar-subitem {% if request.endpoint in ['fleet.employees', 'fleet.employee'] %}active{% endif %}">
+                                <i class="fas fa-id-card"></i> Сотрудники
+                            </a>
+                            <a href="{{ url_for('fleet.contracts') }}" class="list-group-item list-group-item-action sidebar-subitem {% if request.endpoint in ['fleet.contracts', 'fleet.contract', 'fleet.invoice'] %}active{% endif %}">
+                                <i class="fas fa-file-invoice-dollar"></i> Контракты АСО
+                            </a>
+                            <a href="{{ url_for('fleet.dictionaries') }}" class="list-group-item list-group-item-action sidebar-subitem {% if request.endpoint == 'fleet.dictionaries' %}active{% endif %}">
+                                <i class="fas fa-book"></i> Справочники
+                            </a>
+                        </div>
                         <a href="{{ url_for('admin_ships') }}" class="list-group-item list-group-item-action">
                             <i class="fas fa-ship"></i> Управление судами
                         </a>
@@ -127,9 +200,6 @@
                         </a>
                         <a href="{{ url_for('admin_logs') }}" class="list-group-item list-group-item-action">
                             <i class="fas fa-history"></i> Логи аудита
-                        </a>
-                        <a href="{{ url_for('admin_downtimes_correction') }}" class="list-group-item list-group-item-action">
-                            <i class="fas fa-tools"></i> Корректировка простоев
                         </a>
                     {% endif %}
                     
@@ -148,12 +218,14 @@
                         <a href="{{ url_for('engineer_downtimes') }}" class="btn btn-outline-primary">Реестр</a>
                         <a href="{{ url_for('admin_ships') }}" class="btn btn-outline-primary">Суда</a>
                         <a href="{{ url_for('admin_maintenance') }}" class="btn btn-outline-primary">Ремонты</a>
+                        <a href="{{ url_for('fleet.ships') }}" class="btn btn-outline-primary">Документы</a>
                     {% elif current_user.role == 'admin' %}
                         <a href="{{ url_for('engineer_pending') }}" class="btn btn-outline-primary">Утверждения</a>
                         <a href="{{ url_for('engineer_dashboard_page') }}" class="btn btn-outline-primary">КПЭ</a>
                         <a href="{{ url_for('engineer_downtimes') }}" class="btn btn-outline-primary">Реестр</a>
                         <a href="{{ url_for('admin_ships') }}" class="btn btn-outline-primary">Суда</a>
                         <a href="{{ url_for('admin_maintenance') }}" class="btn btn-outline-primary">Ремонты</a>
+                        <a href="{{ url_for('fleet.ships') }}" class="btn btn-outline-primary">Документы</a>
                         <a href="{{ url_for('admin_users') }}" class="btn btn-outline-primary">Пользователи</a>
                         <a href="{{ url_for('admin_logs') }}" class="btn btn-outline-primary">Логи</a>
                         <a href="{{ url_for('admin_downtimes_correction') }}" class="btn btn-outline-primary">Корректировка</a>
@@ -229,6 +301,27 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/js/tom-select.complete.min.js"></script>
+    <script>
+        // Выпадающие списки с поиском с клавиатуры: <select class="searchable">
+        function initSearchableSelects(root) {
+            (root || document).querySelectorAll('select.searchable').forEach(function(el) {
+                if (el.tomselect) return;
+                new TomSelect(el, {
+                    allowEmptyOption: true,
+                    maxOptions: null,
+                    plugins: el.multiple ? ['remove_button'] : [],
+                    render: {no_results: function() { return '<div class="no-results">Ничего не найдено</div>'; }}
+                });
+            });
+        }
+        document.addEventListener('DOMContentLoaded', function() {
+            initSearchableSelects();
+            document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function(el) {
+                new bootstrap.Tooltip(el, {html: el.dataset.bsHtml === 'true'});
+            });
+        });
+    </script>
     <script>
         // Клик по названию судна (.ship-info-link[data-ship-id]) открывает его характеристики.
         // Обработчик в фазе перехвата, чтобы не срабатывали клики по строке таблицы.
@@ -253,9 +346,15 @@
                     if (!data.filled) {
                         html += '<div class="alert alert-warning">Характеристики судна ещё не заполнены.</div>';
                     }
+                    const levelCell = level => level ? ' class="exp-' + level + '" title="' + esc(data.level_titles[level]) + '"' : '';
                     html += '<table class="table table-bordered table-striped mb-0">' +
-                        data.fields.map(f => '<tr><th style="width: 45%;">' + esc(f.label) + '</th><td>' + esc(f.value) + '</td></tr>').join('') +
+                        data.fields.map((f, i) => '<tr><th style="width: 45%;">' + esc(f.label) + '</th><td' +
+                            levelCell(i === 0 ? data.level : f.level) + '>' + esc(f.value) + '</td></tr>').join('') +
                         '</table>';
+                    if (data.links) {
+                        html += '<div class="d-grid gap-2 mt-3">' + data.links.map(l =>
+                            '<a class="btn btn-outline-primary" href="' + esc(l.url) + '">' + esc(l.title) + '</a>').join('') + '</div>';
+                    }
                     if (data.edit_url) {
                         html += '<div class="mt-3 text-end"><a class="btn btn-primary" href="' + esc(data.edit_url) + '">' +
                             '<i class="fas fa-edit me-1"></i> ' + (data.filled ? 'Редактировать' : 'Заполнить') + '</a></div>';

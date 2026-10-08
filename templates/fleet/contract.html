@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+
+{% block title %}Контракт № {{ contract.number }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <a href="{{ url_for('fleet.contracts') }}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-arrow-left me-1"></i> К контрактам</a>
+        <form method="POST" action="{{ url_for('fleet.contract_delete', contract_id=contract.id) }}"
+              onsubmit="return confirm('Удалить контракт вместе с базой цен и счетами?');">
+            <button type="submit" class="btn btn-sm btn-outline-danger"><i class="fas fa-trash me-1"></i> Удалить контракт</button>
+        </form>
+    </div>
+
+    <div class="card">
+        <div class="card-header"><h4 class="mb-0"><i class="fas fa-file-signature me-2"></i> Контракт № {{ contract.number }}</h4></div>
+        <div class="card-body">
+            <form method="POST" action="{{ url_for('fleet.contract_save') }}" class="row g-3">
+                <input type="hidden" name="contract_id" value="{{ contract.id }}">
+                <div class="col-md-3">
+                    <label class="form-label">Номер *</label>
+                    <input type="text" name="number" class="form-control" value="{{ contract.number }}" maxlength="100" required>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Дата</label>
+                    <input type="date" name="contract_date" class="form-control" value="{{ contract.contract_date.isoformat() if contract.contract_date else '' }}">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Исполнитель</label>
+                    <input type="text" name="contractor" class="form-control" value="{{ contract.contractor or '' }}" maxlength="300">
+                </div>
+                <div class="col-md-2 d-flex align-items-end">
+                    <button type="submit" class="btn btn-success w-100"><i class="fas fa-save me-1"></i> Сохранить</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-xl-7">
+            <div class="card">
+                <div class="card-header"><h5 class="mb-0"><i class="fas fa-tags me-2"></i> База цен за единицу</h5></div>
+                <div class="card-body table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead><tr><th>Наименование</th><th style="width: 15%;">Ед. изм.</th><th style="width: 20%;">Цена за ед., руб.</th><th style="width: 1%;"></th></tr></thead>
+                        <tbody>
+                            {% for p in contract.prices %}
+                            <tr>
+                                <td colspan="3">
+                                    <form method="POST" action="{{ url_for('fleet.price_save', contract_id=contract.id) }}" class="row g-1" id="price-{{ p.id }}">
+                                        <input type="hidden" name="price_id" value="{{ p.id }}">
+                                        <div class="col-7"><input type="text" name="name" class="form-control form-control-sm" value="{{ p.name }}" maxlength="300" required></div>
+                                        <div class="col-2"><input type="text" name="unit" class="form-control form-control-sm" value="{{ p.unit or '' }}" maxlength="30"></div>
+                                        <div class="col-3"><input type="text" name="unit_price" class="form-control form-control-sm text-end" value="{{ p.unit_price|money }}" inputmode="decimal" required></div>
+                                    </form>
+                                </td>
+                                <td class="text-nowrap">
+                                    <button type="submit" form="price-{{ p.id }}" class="btn btn-sm btn-outline-primary" title="Сохранить"><i class="fas fa-save"></i></button>
+                                    <form method="POST" action="{{ url_for('fleet.price_delete', price_id=p.id) }}" class="d-inline" onsubmit="return confirm('Удалить «{{ p.name|e }}»?');">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger" title="Удалить"><i class="fas fa-trash"></i></button>
+                                    </form>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                            <tr class="table-light">
+                                <td colspan="3">
+                                    <form method="POST" action="{{ url_for('fleet.price_save', contract_id=contract.id) }}" class="row g-1" id="price-new">
+                                        <div class="col-7"><input type="text" name="name" class="form-control form-control-sm" placeholder="Новое наименование" maxlength="300" required></div>
+                                        <div class="col-2"><input type="text" name="unit" class="form-control form-control-sm" placeholder="шт" maxlength="30"></div>
+                                        <div class="col-3"><input type="text" name="unit_price" class="form-control form-control-sm text-end" placeholder="0,00" inputmode="decimal" required></div>
+                                    </form>
+                                </td>
+                                <td><button type="submit" form="price-new" class="btn btn-sm btn-success" title="Добавить"><i class="fas fa-plus"></i></button></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-xl-5">
+            <div class="card">
+                <div class="card-header"><h5 class="mb-0"><i class="fas fa-file-invoice-dollar me-2"></i> Счета</h5></div>
+                <div class="card-body table-responsive">
+                    <table class="table table-sm table-hover align-middle">
+                        <thead><tr><th>Счёт</th><th class="text-end">По счёту</th><th class="text-end">По расчёту</th><th>Проверка</th></tr></thead>
+                        <tbody>
+                            {% for inv in contract.invoices %}
+                            {% set s = summaries[inv.id] %}
+                            <tr>
+                                <td><a href="{{ url_for('fleet.invoice', invoice_id=inv.id) }}">№ {{ inv.number }}</a><br>
+                                    <small class="text-muted">{{ inv.invoice_date.strftime('%d.%m.%Y') if inv.invoice_date else '' }}</small></td>
+                                <td class="text-end">{{ (s.stated_total if s.stated_total is not none else s.stated_lines_total)|money }}</td>
+                                <td class="text-end">{{ s.expected_total|money }}</td>
+                                <td>
+                                    {% if not inv.lines %}<span class="badge bg-secondary">нет строк</span>
+                                    {% elif s.correct %}<span class="badge bg-success">верно</span>
+                                    {% else %}<span class="badge bg-danger">расхождение</span>{% endif %}
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr><td colspan="4" class="text-center text-muted">Счетов нет</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    <form method="POST" action="{{ url_for('fleet.invoice_save', contract_id=contract.id) }}" class="row g-2 border-top pt-3">
+                        <div class="col-md-4"><input type="text" name="number" class="form-control form-control-sm" placeholder="№ счёта" maxlength="100" required></div>
+                        <div class="col-md-4"><input type="date" name="invoice_date" class="form-control form-control-sm"></div>
+                        <div class="col-md-4"><input type="text" name="stated_total" class="form-control form-control-sm text-end" placeholder="Итог по счёту" inputmode="decimal"></div>
+                        <div class="col-12"><button type="submit" class="btn btn-sm btn-success w-100"><i class="fas fa-plus me-1"></i> Добавить счёт</button></div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

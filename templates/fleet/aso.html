@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+
+{% block title %}АСО — {{ ship.name }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    {% include 'fleet/_ship_nav.html' %}
+
+    <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h4 class="mb-0"><i class="fas fa-life-ring me-2"></i> Аварийно-спасательное оборудование</h4>
+            <button type="button" class="btn btn-light btn-sm" data-bs-toggle="modal" data-bs-target="#asoModal" data-aso="">
+                <i class="fas fa-plus me-1"></i> Добавить
+            </button>
+        </div>
+        <div class="card-body table-responsive">
+            <table class="table table-bordered table-hover align-middle">
+                <thead>
+                    <tr>
+                        <th>№ п/п</th>
+                        <th>Наименование АСО</th>
+                        <th>Номер изделия</th>
+                        <th>Дата производства</th>
+                        <th>Содержание изделия</th>
+                        <th>Исходное кол-во содержимого изделия по умолчанию</th>
+                        <th>Годен ДО</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in items %}
+                    {% set name_level = name_levels[item.id] %}
+                    {% set level = item_levels[item.id] %}
+                    <tr>
+                        <td>{{ loop.index }}.</td>
+                        <td {% if name_level %}class="exp-{{ name_level }}" title="{{ expiry_titles[name_level] }}"{% endif %}>{{ item.name }}</td>
+                        <td>{{ item.item_number or '' }}</td>
+                        <td>{{ item.production_date.strftime('%d.%m.%Y') if item.production_date else '' }}</td>
+                        <td style="white-space: pre-line;">{{ item.contents or '' }}</td>
+                        <td>{{ item.default_quantity or '' }}</td>
+                        <td {% if level %}class="exp-{{ level }}" title="{{ expiry_titles[level] }}"{% endif %}>
+                            {{ item.valid_until.strftime('%d.%m.%Y') if item.valid_until else '' }}
+                        </td>
+                        <td class="text-nowrap">
+                            <button type="button" class="btn btn-sm btn-outline-primary" title="Изменить"
+                                    data-bs-toggle="modal" data-bs-target="#asoModal"
+                                    data-aso='{{ {"equipment_id": item.id, "name": item.name, "item_number": item.item_number or "",
+                                                 "production_date": item.production_date.isoformat() if item.production_date else "",
+                                                 "contents": item.contents or "", "default_quantity": item.default_quantity or "",
+                                                 "valid_until": item.valid_until.isoformat() if item.valid_until else ""}|tojson|forceescape }}'>
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" title="Перенести на другое судно"
+                                    data-bs-toggle="modal" data-bs-target="#transferModal"
+                                    data-action="{{ url_for('fleet.aso_transfer', item_id=item.id) }}" data-name="{{ item.name }}">
+                                <i class="fas fa-exchange-alt"></i>
+                            </button>
+                            <form method="POST" action="{{ url_for('fleet.aso_delete', item_id=item.id) }}" class="d-inline"
+                                  onsubmit="return confirm('Удалить «{{ item.name|e }}»?');">
+                                <button type="submit" class="btn btn-sm btn-outline-danger" title="Удалить"><i class="fas fa-trash"></i></button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="8" class="text-center text-muted py-4">АСО не добавлено</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header"><h5 class="mb-0"><i class="fas fa-history me-2"></i> Перенос АСО</h5></div>
+        <div class="card-body table-responsive">
+            <table class="table table-sm table-striped">
+                <thead><tr><th>Дата</th><th>Наименование АСО</th><th>С судна</th><th>На судно</th><th>Комментарий</th><th>Кто</th></tr></thead>
+                <tbody>
+                    {% for t in history %}
+                    <tr>
+                        <td>{{ t.transfer_date.strftime('%d.%m.%Y') }}</td>
+                        <td>{{ t.equipment.name }}{% if t.equipment.item_number %} (№ {{ t.equipment.item_number }}){% endif %}</td>
+                        <td>{{ t.from_ship.name }}</td>
+                        <td>{{ t.to_ship.name }}</td>
+                        <td>{{ t.comment or '' }}</td>
+                        <td>{{ t.user.full_name if t.user else '' }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="6" class="text-center text-muted">Переносов не было</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Добавление / изменение АСО -->
+<div class="modal fade" id="asoModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <form method="POST" action="{{ url_for('fleet.aso_save', ship_id=ship.id) }}" class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">АСО</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+            </div>
+            <div class="modal-body row g-3">
+                <input type="hidden" name="equipment_id">
+                <div class="col-md-8">
+                    <label class="form-label">Наименование АСО *</label>
+                    <input type="text" name="name" class="form-control" maxlength="300" required>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Номер изделия</label>
+                    <input type="text" name="item_number" class="form-control" maxlength="100">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Дата производства</label>
+                    <input type="date" name="production_date" class="form-control">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Годен до</label>
+                    <input type="date" name="valid_until" class="form-control">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Исходное кол-во содержимого</label>
+                    <input type="text" name="default_quantity" class="form-control" maxlength="100">
+                </div>
+                <div class="col-12">
+                    <label class="form-label">Содержание изделия</label>
+                    <textarea name="contents" class="form-control" rows="3"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                <button type="submit" class="btn btn-success"><i class="fas fa-save me-1"></i> Сохранить</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Перенос АСО -->
+<div class="modal fade" id="transferModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <form method="POST" class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Перенос АСО на другое судно</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+            </div>
+            <div class="modal-body">
+                <p class="fw-semibold" data-field="name"></p>
+                <div class="mb-3">
+                    <label class="form-label">Судно *</label>
+                    <select name="to_ship_id" class="form-select searchable" required>
+                        <option value="">— выберите судно —</option>
+                        {% for s in ships if s.id != ship.id %}
+                        <option value="{{ s.id }}">{{ s.name }}{% if s.branch %} — {{ s.branch }}{% endif %}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Дата переноса</label>
+                    <input type="date" name="transfer_date" class="form-control" value="{{ today_iso }}">
+                </div>
+                <div>
+                    <label class="form-label">Комментарий</label>
+                    <input type="text" name="comment" class="form-control" maxlength="500">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                <button type="submit" class="btn btn-primary"><i class="fas fa-exchange-alt me-1"></i> Перенести</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+document.getElementById('asoModal').addEventListener('show.bs.modal', function(e) {
+    const form = this.querySelector('form');
+    const data = e.relatedTarget.dataset.aso ? JSON.parse(e.relatedTarget.dataset.aso) : {};
+    form.reset();
+    form.equipment_id.value = data.equipment_id || '';
+    ['name', 'item_number', 'production_date', 'contents', 'default_quantity', 'valid_until'].forEach(function(key) {
+        form[key].value = data[key] || '';
+    });
+    this.querySelector('.modal-title').textContent = data.equipment_id ? 'Изменение АСО' : 'Добавление АСО';
+});
+document.getElementById('transferModal').addEventListener('show.bs.modal', function(e) {
+    this.querySelector('form').action = e.relatedTarget.dataset.action;
+    this.querySelector('[data-field="name"]').textContent = e.relatedTarget.dataset.name;
+});
+</script>
+{% endblock %}

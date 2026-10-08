@@ -5,20 +5,33 @@ from datetime import date, datetime
 from openpyxl import load_workbook
 from sqlalchemy import inspect, text
 
+from fleet_rules import expiry_level, normalize_branch
+
 IMPORT_SHEET = 'Информация по судам'
 
-# (поле модели Ship, подпись, подсказка в форме)
+# (поле модели Ship, подпись, подсказка в форме) — в порядке карточки судна из ТЗ
 SHIP_FIELDS = [
+    ('branch', 'Филиал', ''),
     ('core', 'Рабочее ядро', ''),
+    ('ship_type', 'Тип судна', 'например, земснаряд'),
     ('build_year', 'Год постройки', 'например, 1995'),
     ('gross_tonnage', 'Валовая вместимость, р.т.', 'например, 139,87'),
+    ('dimensions', 'Габариты судна L/B/H/T, м', 'например, 26,23/9,22/8,7/1,21'),
     ('rko_class', 'Класс (РКО)', 'например, О2,0'),
+    ('engine_power', 'Мощность главных двигателей, кВт (только для земснарядов)', 'например, 330'),
+    ('electronic_charts', 'Наличие электронных карт (Да/Нет)', ''),
+    ('radar', 'Наличие радиолокационных станций (Да/Нет)', ''),
+    ('productivity', 'Производительность', 'например, 700 м3/ч'),
     ('id_number', 'Идентификационный номер', 'например, СЗ-08-39'),
     ('annual_rko', 'Ежегодное РКО', 'дд.мм.гггг'),
     ('sub', 'СУБ', 'дд.мм.гггг, ГИМС или М.С'),
     ('min_crew_cert', 'Свидетельство о минимальном составе экипажа', ''),
-    ('dimensions', 'Габариты судна L/B/H/T', 'например, 26,23/9,22/8,7/1,21'),
 ]
+
+YES_NO_FIELDS = ('electronic_charts', 'radar')
+
+# Поля, у которых подсвечивается срок (ТЗ: «Ежегодное РКО» и «СУБ»)
+DATE_FIELDS = ('annual_rko', 'sub')
 
 CORE_CHOICES = {'Р.Я': 'Рабочее ядро', 'Н.Я': 'Нерабочее ядро'}
 
@@ -70,8 +83,11 @@ _REFERENCE_ROWS = [
     ('МБ-1209', 'Н.Я', '1988', '680', 'МПР-2,5', '-', '-', '23.11.2026', '', '49,6/10,4/15,2/2,2'),
 ]
 
+_REFERENCE_KEYS = ['name', 'core', 'build_year', 'gross_tonnage', 'rko_class', 'id_number',
+                   'annual_rko', 'sub', 'min_crew_cert', 'dimensions']
+
 REFERENCE = [
-    dict(zip(['name'] + [key for key, _, _ in SHIP_FIELDS], row))
+    dict(zip(_REFERENCE_KEYS, row))
     for row in _REFERENCE_ROWS
 ]
 
@@ -91,13 +107,14 @@ def find_reference(ship_name):
 
 
 def get_ship_info(ship):
-    """Список {label, value} для карточки судна."""
-    info = [{'label': 'Судно', 'value': ship.name}]
+    """Список {label, value, level} для карточки судна; level — подсветка срока."""
+    info = [{'label': 'Судно', 'value': ship.name, 'level': None}]
     for key, label, _ in SHIP_FIELDS:
         value = getattr(ship, key) or ''
         if key == 'core':
             value = CORE_CHOICES.get(value, value)
-        info.append({'label': label, 'value': value or '-'})
+        level = expiry_level(value) if key in DATE_FIELDS else None
+        info.append({'label': label, 'value': value or '-', 'level': level})
     return info
 
 
@@ -123,6 +140,12 @@ def ensure_ship_columns(db):
 _HEADER_MATCHERS = {
     'number': lambda h: h in ('№', '№ п/п', 'n'),
     'name': lambda h: h == 'судно',
+    'branch': lambda h: h == 'филиал',
+    'ship_type': lambda h: h == 'тип судна',
+    'engine_power': lambda h: h.startswith('мощность главных двигателей'),
+    'electronic_charts': lambda h: 'электронных карт' in h,
+    'radar': lambda h: 'радиолокационных' in h,
+    'productivity': lambda h: h.startswith('производительность'),
     'core': lambda h: 'рабочее ядро' in h,
     'build_year': lambda h: 'год постройки' in h,
     'gross_tonnage': lambda h: 'валовая вместимость' in h,
@@ -153,6 +176,10 @@ def _cell_text(value):
 def _normalize_core(value):
     code = re.sub(r'[\s.]', '', value).upper()
     return {'РЯ': 'Р.Я', 'НЯ': 'Н.Я'}.get(code, value)
+
+
+def _normalize_yes_no(value):
+    return {'да': 'Да', 'нет': 'Нет'}.get(value.strip().lower(), '') if value else ''
 
 
 def _clean_name(value):
@@ -217,6 +244,13 @@ def parse_ship_excel(file_storage):
         item = {'name': name}
         for field, _, _ in SHIP_FIELDS:
             item[field] = core if field == 'core' else get(field)
+        for field in YES_NO_FIELDS:
+            item[field] = _normalize_yes_no(item[field])
+        if item['branch']:
+            branch = normalize_branch(item['branch'])
+            if branch is None:
+                warnings.append(f'Строка {line_no}: филиал «{item["branch"]}» не из списка филиалов — не загружен')
+            item['branch'] = branch or ''
         ships.append(item)
 
     if not ships:

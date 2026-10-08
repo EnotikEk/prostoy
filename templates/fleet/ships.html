@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block title %}Суда и документы{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="card">
+        <div class="card-header">
+            <h4 class="mb-0"><i class="fas fa-ship me-2"></i> Список судов по филиалам</h4>
+            <small class="text-white-50">Нажмите на название судна, чтобы открыть его карточку</small>
+        </div>
+        <div class="card-body">
+            <form method="GET" class="row g-2 mb-3">
+                <div class="col-md-4">
+                    <label class="form-label small">Филиал</label>
+                    <select name="branch" class="form-select">
+                        <option value="">Все филиалы</option>
+                        {% for branch in branches %}
+                        <option value="{{ branch }}" {% if filters.branch == branch %}selected{% endif %}>{{ branch }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small">Ядро</label>
+                    <select name="core" class="form-select">
+                        <option value="">Все</option>
+                        {% for code, title in core_choices.items() %}
+                        <option value="{{ code }}" {% if filters.core == code %}selected{% endif %}>{{ title }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small">Класс судна</label>
+                    <select name="klass" class="form-select">
+                        <option value="">Все</option>
+                        {% for klass in ship_classes %}
+                        <option value="{{ klass }}" {% if filters.klass == klass %}selected{% endif %}>{{ klass }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2 d-flex align-items-end gap-2">
+                    <button type="submit" class="btn btn-primary w-100"><i class="fas fa-filter"></i></button>
+                    <a href="{{ url_for('fleet.ships') }}" class="btn btn-outline-secondary w-100" title="Сбросить"><i class="fas fa-times"></i></a>
+                </div>
+            </form>
+
+            <div class="mb-2 small">
+                <span class="badge exp-year text-dark">меньше года</span>
+                <span class="badge exp-half text-dark">меньше полугода</span>
+                <span class="badge exp-month">меньше месяца</span>
+                <span class="badge exp-expired">срок наступил</span>
+                <span class="text-muted ms-2">— по датам «Ежегодное РКО», «СУБ» и «Годен до» АСО</span>
+            </div>
+
+            <div class="table-responsive">
+                <table class="table table-bordered table-hover">
+                    <thead>
+                        <tr>
+                            <th>Филиал</th>
+                            <th>Наименование судна</th>
+                            <th>Ядро (рабочее/нерабочее)</th>
+                            <th>Класс судна (РКО/М.С./ГИМС)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for ship in ships %}
+                        {% set level = levels[ship.id] %}
+                        <tr>
+                            <td>{{ ship.branch or '—' }}</td>
+                            <td {% if level %}class="exp-{{ level }}" title="{{ expiry_titles[level] }}"{% endif %}>
+                                <a href="#" class="ship-info-link fw-semibold" data-ship-id="{{ ship.id }}">{{ ship.name }}</a>
+                            </td>
+                            <td>{{ core_choices.get(ship.core, ship.core) or '—' }}</td>
+                            <td>{{ classes[ship.id] or '—' }}</td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="4" class="text-center text-muted py-4">Суда не найдены</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

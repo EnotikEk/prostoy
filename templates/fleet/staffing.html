@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+
+{% block title %}Штатное расписание — {{ ship.name }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    {% include 'fleet/_ship_nav.html' %}
+
+    <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h4 class="mb-0"><i class="fas fa-sitemap me-2"></i> Штатное расписание</h4>
+            <button type="button" class="btn btn-light btn-sm" data-bs-toggle="modal" data-bs-target="#staffingModal" data-row="">
+                <i class="fas fa-plus me-1"></i> Добавить должность
+            </button>
+        </div>
+        <div class="card-body table-responsive">
+            <table class="table table-bordered table-hover align-middle">
+                <thead>
+                    <tr><th style="width: 45%;">Должность</th><th>ФИО</th><th style="width: 1%;"></th></tr>
+                </thead>
+                <tbody>
+                    {% for row in rows %}
+                    {% set row_issues = issues.get(row.id, []) %}
+                    <tr>
+                        <td>{{ row.position.name }}</td>
+                        {% if row_issues %}
+                        <td class="cell-error" data-bs-toggle="tooltip" data-bs-html="true"
+                            title="{% for issue in row_issues %}• {{ issue }}<br>{% endfor %}">
+                            <i class="fas fa-exclamation-triangle me-1"></i>
+                            <a href="{{ url_for('fleet.employee', employee_id=row.employee.id) }}" class="text-reset">{{ row.employee.full_name }}</a>
+                        </td>
+                        {% else %}
+                        <td>
+                            {% if row.employee %}
+                            <a href="{{ url_for('fleet.employee', employee_id=row.employee.id) }}">{{ row.employee.full_name }}</a>
+                            {% else %}<span class="text-muted">вакансия</span>{% endif %}
+                        </td>
+                        {% endif %}
+                        <td class="text-nowrap">
+                            <button type="button" class="btn btn-sm btn-outline-primary" title="Изменить"
+                                    data-bs-toggle="modal" data-bs-target="#staffingModal"
+                                    data-row='{{ {"row_id": row.id, "position_id": row.position_id, "employee_id": row.employee_id or ""}|tojson|forceescape }}'>
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <form method="POST" action="{{ url_for('fleet.staffing_delete', row_id=row.id) }}" class="d-inline"
+                                  onsubmit="return confirm('Удалить должность из штатного расписания?');">
+                                <button type="submit" class="btn btn-sm btn-outline-danger" title="Удалить"><i class="fas fa-trash"></i></button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="3" class="text-center text-muted py-4">Штатное расписание не заполнено</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            <small class="text-muted">В графе «ФИО» выбираются сотрудники из экипажа судна (вкладка «Экипаж»).</small>
+        </div>
+    </div>
+</div>
+
+<!-- Добавление / изменение должности -->
+<div class="modal fade" id="staffingModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <form method="POST" action="{{ url_for('fleet.staffing_save', ship_id=ship.id) }}" class="modal-content" id="staffingForm">
+            <div class="modal-header">
+                <h5 class="modal-title">Должность штатного расписания</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" name="row_id">
+                <div class="mb-3">
+                    <label class="form-label">Должность *</label>
+                    <select name="position_id" class="form-select searchable" required>
+                        <option value="">— начните вводить должность —</option>
+                        {% for p in positions %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label">ФИО</label>
+                    <select name="employee_id" class="form-select searchable">
+                        <option value="">— вакансия —</option>
+                        {% for e in crew %}
+                        <option value="{{ e.id }}">{{ e.full_name }}{% if e.staff_position %} ({{ e.staff_position.name }}){% endif %}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                <button type="submit" class="btn btn-success"><i class="fas fa-save me-1"></i> Сохранить</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Предупреждение по результатам проверки -->
+<div class="modal fade" id="checkModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-warning">
+                <h5 class="modal-title"><i class="fas fa-exclamation-triangle me-2"></i> Предупреждение</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+            </div>
+            <div class="modal-body">
+                <p><strong data-field="employee"></strong> не подходит на эту должность на судне «{{ ship.name }}»:</p>
+                <ul class="mb-0" data-field="issues"></ul>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Вернуться</button>
+                <button type="button" class="btn btn-warning" id="saveAnyway">Всё равно назначить</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function() {
+    const form = document.getElementById('staffingForm');
+    const checkModalEl = document.getElementById('checkModal');
+    let confirmed = false;
+
+    document.getElementById('staffingModal').addEventListener('show.bs.modal', function(e) {
+        const data = e.relatedTarget.dataset.row ? JSON.parse(e.relatedTarget.dataset.row) : {};
+        form.row_id.value = data.row_id || '';
+        form.position_id.tomselect.setValue(data.position_id ? String(data.position_id) : '', true);
+        form.employee_id.tomselect.setValue(data.employee_id ? String(data.employee_id) : '', true);
+        confirmed = false;
+    });
+
+    form.addEventListener('submit', function(e) {
+        if (confirmed || !form.employee_id.value || !form.position_id.value) return;
+        e.preventDefault();
+        const params = new URLSearchParams({
+            ship_id: '{{ ship.id }}', employee_id: form.employee_id.value, position_id: form.position_id.value
+        });
+        fetch('{{ url_for("fleet.staffing_check") }}?' + params)
+            .then(r => r.json())
+            .then(function(data) {
+                if (!data.issues.length) {
+                    confirmed = true;
+                    form.submit();
+                    return;
+                }
+                checkModalEl.querySelector('[data-field="employee"]').textContent = data.employee;
+                const list = checkModalEl.querySelector('[data-field="issues"]');
+                list.innerHTML = '';
+                data.issues.forEach(function(text) {
+                    const li = document.createElement('li');
+                    li.textContent = text;
+                    list.appendChild(li);
+                });
+                bootstrap.Modal.getOrCreateInstance(checkModalEl).show();
+            })
+            .catch(function() { alert('Не удалось проверить сотрудника'); });
+    });
+
+    document.getElementById('saveAnyway').addEventListener('click', function() {
+        confirmed = true;
+        form.submit();
+    });
+})();
+</script>
+{% endblock %}

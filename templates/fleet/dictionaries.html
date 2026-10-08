@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block title %}Справочники{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        {% for kind, title in kinds.items() %}
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header"><h5 class="mb-0"><i class="fas fa-book me-2"></i> {{ title }}</h5></div>
+                <div class="card-body">
+                    <form method="POST" action="{{ url_for('fleet.dictionary_save') }}" class="input-group mb-3">
+                        <input type="hidden" name="kind" value="{{ kind }}">
+                        <input type="text" name="name" class="form-control" placeholder="Новое наименование" maxlength="300" required>
+                        <button type="submit" class="btn btn-success"><i class="fas fa-plus me-1"></i> Добавить</button>
+                    </form>
+                    <table class="table table-sm table-hover align-middle mb-0">
+                        <tbody>
+                            {% for item in items[kind] %}
+                            <tr>
+                                <td>
+                                    <form method="POST" action="{{ url_for('fleet.dictionary_save') }}" class="input-group input-group-sm">
+                                        <input type="hidden" name="kind" value="{{ kind }}">
+                                        <input type="hidden" name="item_id" value="{{ item.id }}">
+                                        <input type="text" name="name" class="form-control" value="{{ item.name }}" maxlength="300" required>
+                                        <button type="submit" class="btn btn-outline-primary" title="Сохранить"><i class="fas fa-save"></i></button>
+                                    </form>
+                                </td>
+                                <td style="width: 1%;">
+                                    {% if item.id in used %}
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" disabled title="Используется — можно только переименовать"><i class="fas fa-lock"></i></button>
+                                    {% else %}
+                                    <form method="POST" action="{{ url_for('fleet.dictionary_delete', item_id=item.id) }}" onsubmit="return confirm('Удалить «{{ item.name|e }}»?');">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger" title="Удалить"><i class="fas fa-trash"></i></button>
+                                    </form>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr><td class="text-muted text-center">Список пуст</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

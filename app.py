@@ -13,7 +13,9 @@ from kpi_calculator import KPICalculator
 from report_generator import ReportGenerator
 from file_uploader import FileUploader
 from utils import validate_description, calculate_duration_hours
-from ship_info import SHIP_FIELDS, CORE_CHOICES, REFERENCE, IMPORT_SHEET, find_reference, get_ship_info, has_ship_info, ensure_ship_columns, name_key, parse_ship_excel
+from fleet_routes import fleet, seed_dictionaries, branch_names, ship_levels
+from fleet_rules import EXPIRY_TITLES, normalize_branch
+from ship_info import SHIP_FIELDS, YES_NO_FIELDS, CORE_CHOICES, REFERENCE, IMPORT_SHEET, find_reference, get_ship_info, has_ship_info, ensure_ship_columns, name_key, parse_ship_excel
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -21,6 +23,7 @@ app.config.from_object(Config)
 # Инициализация
 db.init_app(app)
 init_auth(app)
+app.register_blueprint(fleet)
 
 # Создание папок
 os.makedirs(Config.UPLOAD_FOLDER, exist_ok=True)
@@ -31,6 +34,7 @@ with app.app_context():
     db.create_all()
     ensure_ship_columns(db)
     create_default_users()
+    seed_dictionaries()
 
 # ==================== ОБЩИЕ МАРШРУТЫ ====================
 
@@ -59,10 +63,8 @@ def logout():
 def dashboard():
     if current_user.role == 'captain':
         return redirect(url_for('captain_dashboard'))
-    elif current_user.role == 'engineer':
-        return redirect(url_for('engineer_dashboard_page'))
     else:
-        return redirect(url_for('admin_users'))
+        return redirect(url_for('engineer_dashboard_page'))
 
 # ==================== ЗАГРУЗКА ФАЙЛОВ ====================
 
@@ -667,6 +669,11 @@ def admin_ship_characteristics(ship_id):
                 errors.append(f'Поле «{label}» не должно быть длиннее {max_len} символов')
         if values['core'] and values['core'] not in CORE_CHOICES:
             errors.append('Некорректное значение поля «Рабочее ядро»')
+        for key, label, _ in SHIP_FIELDS:
+            if key in YES_NO_FIELDS and values[key] and values[key] not in ('Да', 'Нет'):
+                errors.append(f'Некорректное значение поля «{label}»')
+        if values['branch'] and not normalize_branch(values['branch']):
+            errors.append('Выберите филиал из списка')
 
         if not errors:
             for key, _, _ in SHIP_FIELDS:
@@ -686,6 +693,8 @@ def admin_ship_characteristics(ship_id):
                            fields=SHIP_FIELDS,
                            values=values,
                            core_choices=CORE_CHOICES,
+                           yes_no_fields=YES_NO_FIELDS,
+                           branches=branch_names(),
                            reference_list=REFERENCE,
                            suggested=reference['name'] if reference else '')
 
@@ -839,10 +848,20 @@ def api_downtime_detail(downtime_id):
 def api_ship_info(ship_id):
     ship = Ship.query.get_or_404(ship_id)
     can_edit = current_user.role in (Config.ROLE_ENGINEER, Config.ROLE_ADMIN)
+    links = None
+    if can_edit:
+        links = [
+            {'title': 'Аварийно-спасательное оборудование', 'url': url_for('fleet.aso', ship_id=ship.id)},
+            {'title': 'Штатное расписание', 'url': url_for('fleet.staffing', ship_id=ship.id)},
+            {'title': 'Экипаж', 'url': url_for('fleet.crew', ship_id=ship.id)},
+        ]
     return jsonify({
         'ship_name': ship.name,
         'filled': has_ship_info(ship),
         'fields': get_ship_info(ship),
+        'level': ship_levels([ship])[ship.id],
+        'level_titles': EXPIRY_TITLES,
+        'links': links,
         'edit_url': url_for('admin_ship_characteristics', ship_id=ship.id) if can_edit else None
     })
 

@@ -44,6 +44,20 @@
                         <option value="{{ code }}" {% if values.core == code %}selected{% endif %}>{{ title }} ({{ code }})</option>
                         {% endfor %}
                     </select>
+                    {% elif key == 'branch' %}
+                    <select name="branch" id="field-branch" class="form-select">
+                        <option value="">— не указан —</option>
+                        {% for branch in branches %}
+                        <option value="{{ branch }}" {% if values.branch == branch %}selected{% endif %}>{{ branch }}</option>
+                        {% endfor %}
+                    </select>
+                    {% elif key in yes_no_fields %}
+                    <select name="{{ key }}" id="field-{{ key }}" class="form-select">
+                        <option value="">— не указано —</option>
+                        {% for option in ['Да', 'Нет'] %}
+                        <option value="{{ option }}" {% if values[key] == option %}selected{% endif %}>{{ option }}</option>
+                        {% endfor %}
+                    </select>
                     {% else %}
                     <input type="text" name="{{ key }}" id="field-{{ key }}" class="form-control"
                            value="{{ values[key] }}" placeholder="{{ placeholder }}">

@@ -38,6 +38,12 @@ class Ship(db.Model):
     sub = db.Column(db.String(50))                 # СУБ
     min_crew_cert = db.Column(db.String(200))      # Свидетельство о минимальном составе экипажа
     dimensions = db.Column(db.String(100))         # Габариты L/B/H/T
+    branch = db.Column(db.String(200))             # Филиал
+    ship_type = db.Column(db.String(200))          # Тип судна
+    engine_power = db.Column(db.String(50))        # Мощность главных двигателей, кВт (для земснарядов)
+    electronic_charts = db.Column(db.String(3))    # Наличие электронных карт: Да / Нет
+    radar = db.Column(db.String(3))                # Наличие радиолокационных станций: Да / Нет
+    productivity = db.Column(db.String(50))        # Производительность
 
 class Downtime(db.Model):
     __tablename__ = 'downtimes'
@@ -90,5 +96,196 @@ class PlannedMaintenance(db.Model):
     ship_id = db.Column(db.Integer, db.ForeignKey('ships.id'), nullable=False)
     year = db.Column(db.Integer, nullable=False)
     planned_hours = db.Column(db.Float, default=0)
-    
+
     ship = db.relationship('Ship', backref='maintenance_plans')
+
+
+# ==================== УЧЁТ ДОКУМЕНТОВ ПЛАВСОСТАВА И АСО ====================
+
+class DictionaryItem(db.Model):
+    """Редактируемые выпадающие списки: должности, наименования доп. подготовки."""
+    __tablename__ = 'dictionary_items'
+    id = db.Column(db.Integer, primary_key=True)
+    kind = db.Column(db.String(20), nullable=False, index=True)  # position, training
+    name = db.Column(db.String(300), nullable=False)
+    sort_order = db.Column(db.Integer, default=0)
+
+    __table_args__ = (db.UniqueConstraint('kind', 'name', name='uq_dictionary_kind_name'),)
+
+
+class Employee(db.Model):
+    """Сотрудник плавсостава."""
+    __tablename__ = 'employees'
+    id = db.Column(db.Integer, primary_key=True)
+    full_name = db.Column(db.String(300), nullable=False)
+    phone = db.Column(db.String(50))
+    staff_position_id = db.Column(db.Integer, db.ForeignKey('dictionary_items.id'))  # Штатная должность (отдел кадров)
+    ship_id = db.Column(db.Integer, db.ForeignKey('ships.id'), nullable=True)
+    branch = db.Column(db.String(200))     # Филиал, если сотрудник не закреплён за судном
+    mppss_date = db.Column(db.Date)        # Подтверждение знаний МППСС — дата выдачи
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    staff_position = db.relationship('DictionaryItem')
+    ship = db.relationship('Ship', backref='crew')
+    work_diplomas = db.relationship('WorkDiploma', backref='employee', cascade='all, delete-orphan',
+                                    order_by='WorkDiploma.id')
+    study_diplomas = db.relationship('StudyDiploma', backref='employee', cascade='all, delete-orphan',
+                                     order_by='StudyDiploma.id')
+    trainings = db.relationship('Training', backref='employee', cascade='all, delete-orphan',
+                                order_by='Training.id')
+    transfers = db.relationship('EmployeeTransfer', backref='employee', cascade='all, delete-orphan',
+                                order_by='EmployeeTransfer.id.desc()')
+
+    @property
+    def current_branch(self):
+        return self.ship.branch if self.ship else self.branch
+
+
+class WorkDiploma(db.Model):
+    """Рабочий диплом."""
+    __tablename__ = 'work_diplomas'
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey('employees.id'), nullable=False)
+    position_id = db.Column(db.Integer, db.ForeignKey('dictionary_items.id'))
+    end_date = db.Column(db.Date)
+    restrictions = db.Column(db.String(200), default='')  # коды ограничений через запятую
+
+    position = db.relationship('DictionaryItem')
+
+    @property
+    def restriction_codes(self):
+        return [c for c in (self.restrictions or '').split(',') if c]
+
+
+class StudyDiploma(db.Model):
+    """Учебный диплом."""
+    __tablename__ = 'study_diplomas'
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey('employees.id'), nullable=False)
+    level = db.Column(db.String(10), nullable=False)  # ДПО, СПО, ПП, ВПО
+
+
+class Training(db.Model):
+    """Дополнительная подготовка."""
+    __tablename__ = 'trainings'
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey('employees.id'), nullable=False)
+    name_id = db.Column(db.Integer, db.ForeignKey('dictionary_items.id'))
+    valid_until = db.Column(db.Date)  # Срок
+
+    name = db.relationship('DictionaryItem')
+
+
+class EmployeeTransfer(db.Model):
+    """История переводов сотрудника между судами и филиалами."""
+    __tablename__ = 'employee_transfers'
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey('employees.id'), nullable=False)
+    from_ship_id = db.Column(db.Integer, db.ForeignKey('ships.id'))
+    to_ship_id = db.Column(db.Integer, db.ForeignKey('ships.id'))
+    from_branch = db.Column(db.String(200))
+    to_branch = db.Column(db.String(200))
+    transfer_date = db.Column(db.Date, nullable=False)
+    comment = db.Column(db.String(500))
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    from_ship = db.relationship('Ship', foreign_keys=[from_ship_id])
+    to_ship = db.relationship('Ship', foreign_keys=[to_ship_id])
+    user = db.relationship('User')
+
+
+class StaffingPosition(db.Model):
+    """Штатное расписание судна: утверждённая должность и назначенный на неё сотрудник."""
+    __tablename__ = 'staffing_positions'
+    id = db.Column(db.Integer, primary_key=True)
+    ship_id = db.Column(db.Integer, db.ForeignKey('ships.id'), nullable=False)
+    position_id = db.Column(db.Integer, db.ForeignKey('dictionary_items.id'), nullable=False)
+    employee_id = db.Column(db.Integer, db.ForeignKey('employees.id'), nullable=True)
+
+    ship = db.relationship('Ship', backref='staffing')
+    position = db.relationship('DictionaryItem')
+    employee = db.relationship('Employee', backref='staffing_positions')
+
+
+class RescueEquipment(db.Model):
+    """Аварийно-спасательное оборудование (АСО) судна."""
+    __tablename__ = 'rescue_equipment'
+    id = db.Column(db.Integer, primary_key=True)
+    ship_id = db.Column(db.Integer, db.ForeignKey('ships.id'), nullable=False)
+    name = db.Column(db.String(300), nullable=False)      # Наименование АСО
+    item_number = db.Column(db.String(100))               # Номер изделия (есть не у всех)
+    production_date = db.Column(db.Date)                  # Дата производства (есть не у всех)
+    contents = db.Column(db.Text)                         # Содержание изделия
+    default_quantity = db.Column(db.String(100))          # Исходное кол-во содержимого изделия по умолчанию
+    valid_until = db.Column(db.Date)                      # Годен до
+
+    ship = db.relationship('Ship', backref='rescue_equipment')
+    transfers = db.relationship('EquipmentTransfer', backref='equipment', cascade='all, delete-orphan')
+
+
+class EquipmentTransfer(db.Model):
+    """История переноса АСО с судна на судно."""
+    __tablename__ = 'equipment_transfers'
+    id = db.Column(db.Integer, primary_key=True)
+    equipment_id = db.Column(db.Integer, db.ForeignKey('rescue_equipment.id'), nullable=False)
+    from_ship_id = db.Column(db.Integer, db.ForeignKey('ships.id'), nullable=False)
+    to_ship_id = db.Column(db.Integer, db.ForeignKey('ships.id'), nullable=False)
+    transfer_date = db.Column(db.Date, nullable=False)
+    comment = db.Column(db.String(500))
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    from_ship = db.relationship('Ship', foreign_keys=[from_ship_id])
+    to_ship = db.relationship('Ship', foreign_keys=[to_ship_id])
+    user = db.relationship('User')
+
+
+class AsoContract(db.Model):
+    """Контракт на проверку АСО."""
+    __tablename__ = 'aso_contracts'
+    id = db.Column(db.Integer, primary_key=True)
+    number = db.Column(db.String(100), nullable=False)
+    contract_date = db.Column(db.Date)
+    contractor = db.Column(db.String(300))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    prices = db.relationship('AsoPriceItem', backref='contract', cascade='all, delete-orphan',
+                             order_by='AsoPriceItem.name')
+    invoices = db.relationship('AsoInvoice', backref='contract', cascade='all, delete-orphan',
+                               order_by='AsoInvoice.id')
+
+
+class AsoPriceItem(db.Model):
+    """Цена за единицу наименования по контракту."""
+    __tablename__ = 'aso_price_items'
+    id = db.Column(db.Integer, primary_key=True)
+    contract_id = db.Column(db.Integer, db.ForeignKey('aso_contracts.id'), nullable=False)
+    name = db.Column(db.String(300), nullable=False)
+    unit = db.Column(db.String(30))
+    unit_price = db.Column(db.Numeric(12, 2), nullable=False)
+
+
+class AsoInvoice(db.Model):
+    """Выставленный по контракту счёт."""
+    __tablename__ = 'aso_invoices'
+    id = db.Column(db.Integer, primary_key=True)
+    contract_id = db.Column(db.Integer, db.ForeignKey('aso_contracts.id'), nullable=False)
+    number = db.Column(db.String(100), nullable=False)
+    invoice_date = db.Column(db.Date)
+    stated_total = db.Column(db.Numeric(12, 2))  # Итог по счёту
+
+    lines = db.relationship('AsoInvoiceLine', backref='invoice', cascade='all, delete-orphan',
+                            order_by='AsoInvoiceLine.id')
+
+
+class AsoInvoiceLine(db.Model):
+    """Строка счёта: наименование из базы цен, количество и сумма, указанная в счёте."""
+    __tablename__ = 'aso_invoice_lines'
+    id = db.Column(db.Integer, primary_key=True)
+    invoice_id = db.Column(db.Integer, db.ForeignKey('aso_invoices.id'), nullable=False)
+    price_item_id = db.Column(db.Integer, db.ForeignKey('aso_price_items.id'), nullable=False)
+    quantity = db.Column(db.Numeric(12, 3), nullable=False)
+    stated_amount = db.Column(db.Numeric(12, 2), nullable=False)
+
+    price_item = db.relationship('AsoPriceItem')
