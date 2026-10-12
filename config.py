@@ -11,6 +11,13 @@ class Config:
     MAX_CONTENT_LENGTH = int(os.environ.get('MAX_CONTENT_LENGTH', 16 * 1024 * 1024))  # 16MB max
     ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'pdf', 'doc', 'docx', 'gif', 'bmp', 'txt'}
     
+    # Автоматический выход после бездействия, минут
+    SESSION_IDLE_MINUTES = int(os.environ.get('SESSION_IDLE_MINUTES', 30))
+    # Сессия живёт до закрытия браузера (не сохраняется между запусками)
+    SESSION_PERMANENT = False
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = 'Lax'
+
     # Роли пользователей
     ROLE_CAPTAIN = 'captain'
     ROLE_ENGINEER = 'engineer'

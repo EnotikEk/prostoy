@@ -1,4 +1,6 @@
-from flask import session, redirect, url_for, flash, request
+import time
+
+from flask import session, redirect, url_for, flash, request, jsonify
 from flask_login import LoginManager, login_user, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from models import User, db, AuditLog
@@ -14,21 +16,49 @@ def load_user(user_id):
 def init_auth(app):
     login_manager.init_app(app)
     login_manager.login_view = 'login'  # ИСПРАВЛЕНО: было 'login_page'
+    login_manager.login_message = 'Пожалуйста, войдите в систему'
+    login_manager.login_message_category = 'warning'
 
 def login_user_by_credentials(username, password, ip_address):
     user = User.query.filter_by(username=username, is_active=True).first()
     if user and check_password_hash(user.password_hash, password):
-        login_user(user)
+        session.clear()
+        login_user(user, remember=False)
+        session['last_activity'] = time.time()
+        session['fresh_login'] = True  # браузер отметит вкладку, в которой выполнен вход
         log_audit(user.id, user.username, 'login', 'user', user.id, 
                   f'Успешный вход в систему', ip_address)
         return True
     return False
 
-def logout_user_and_log(ip_address):
+LOGOUT_REASONS = {
+    'idle': 'Автоматический выход: бездействие',
+    'tab_closed': 'Автоматический выход: вкладка была закрыта',
+}
+
+
+def logout_user_and_log(ip_address, reason=None):
     if current_user.is_authenticated:
-        log_audit(current_user.id, current_user.username, 'logout', 'user', 
-                  current_user.id, 'Выход из системы', ip_address)
+        log_audit(current_user.id, current_user.username, 'logout', 'user',
+                  current_user.id, LOGOUT_REASONS.get(reason, 'Выход из системы'), ip_address)
     logout_user()
+    session.clear()
+
+
+def enforce_idle_timeout():
+    """before_request: выход, если от пользователя не было запросов дольше SESSION_IDLE_MINUTES."""
+    if request.endpoint == 'static' or not current_user.is_authenticated:
+        return None
+    now = time.time()
+    last = session.get('last_activity')
+    if last is not None and now - last > Config.SESSION_IDLE_MINUTES * 60:
+        logout_user_and_log(request.remote_addr, 'idle')
+        flash(f'Сеанс завершён: нет действий более {Config.SESSION_IDLE_MINUTES} минут. Войдите снова.', 'warning')
+        if request.path.startswith('/api/') or request.path.startswith('/fleet/api/') or request.endpoint == 'session_ping':
+            return jsonify({'error': 'session_expired'}), 401
+        return redirect(url_for('login'))
+    session['last_activity'] = now
+    return None
 
 def role_required(*roles):
     def decorator(f):

@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from flask import Flask, render_template, redirect, url_for, flash, request, jsonify, send_file
+from flask import Flask, render_template, redirect, url_for, flash, request, jsonify, send_file, session
 from flask_login import login_required, current_user
 from werkzeug.security import generate_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -9,6 +9,7 @@ import mimetypes
 from config import Config
 from models import db, User, Ship, Downtime, PlannedMaintenance, DowntimeFile, AuditLog
 from auth import init_auth, login_user_by_credentials, logout_user_and_log, log_audit, create_default_users
+from auth import enforce_idle_timeout, LOGOUT_REASONS
 from auth import captain_required, engineer_required, admin_required
 from kpi_calculator import KPICalculator
 from report_generator import ReportGenerator
@@ -27,6 +28,7 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 db.init_app(app)
 init_auth(app)
 app.register_blueprint(fleet)
+app.before_request(enforce_idle_timeout)
 
 # Создание папок
 os.makedirs(Config.UPLOAD_FOLDER, exist_ok=True)
@@ -55,11 +57,30 @@ def login():
     return render_template('login.html')
 
 @app.route('/logout')
-@login_required
 def logout():
-    logout_user_and_log(request.remote_addr)
-    flash('Вы вышли из системы', 'info')
+    # reason: idle — бездействие, tab_closed — вкладка закрыта (передаёт скрипт в base.html)
+    reason = request.args.get('reason')
+    reason = reason if reason in LOGOUT_REASONS else None
+    was_logged_in = current_user.is_authenticated
+    logout_user_and_log(request.remote_addr, reason)
+    if reason == 'idle':
+        flash(f'Сеанс завершён: нет действий более {Config.SESSION_IDLE_MINUTES} минут. Войдите снова.', 'warning')
+    elif reason == 'tab_closed':
+        flash('Сеанс завершён, так как вкладка была закрыта. Войдите снова.', 'warning')
+    elif was_logged_in:
+        flash('Вы вышли из системы', 'info')
     return redirect(url_for('login'))
+
+@app.route('/session/ping', methods=['POST'])
+@login_required
+def session_ping():
+    """Продление сеанса: браузер сообщает, что пользователь работает (мышь, клавиатура)."""
+    return '', 204
+
+@app.context_processor
+def inject_session_settings():
+    fresh_login = session.pop('fresh_login', False) if current_user.is_authenticated else False
+    return {'session_idle_minutes': Config.SESSION_IDLE_MINUTES, 'fresh_login': fresh_login}
 
 @app.route('/')
 @login_required

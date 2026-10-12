@@ -13,8 +13,12 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <link href="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/css/tom-select.bootstrap5.min.css" rel="stylesheet">
     <style>
+        :root { --navbar-h: 56px; }  /* уточняется скриптом по реальной высоте верхней панели */
         body { background-color: #f0f2f5; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-        .sidebar { background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); min-height: calc(100vh - 56px); border-radius: 0; }
+        /* Левая панель закреплена под верхней и прокручивается сама, если пунктов больше, чем помещается */
+        .sidebar { background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); border-radius: 0;
+                   position: sticky; top: calc(var(--navbar-h) + 1rem); align-self: flex-start;
+                   height: calc(100vh - var(--navbar-h) - 1rem); overflow-y: auto; }
         .sidebar .list-group-item { background: transparent; border: none; color: white; padding: 12px 20px; margin: 2px 0; transition: all 0.3s; }
         .sidebar .list-group-item:hover { background: rgba(255,255,255,0.2); transform: translateX(5px); }
         .sidebar .list-group-item i { margin-right: 10px; width: 25px; }
@@ -25,7 +29,13 @@
         .sidebar .sidebar-subitem { padding-left: 40px; font-size: 0.95rem; background: rgba(0,0,0,0.1); }
         .card { border-radius: 15px; box-shadow: 0 5px 20px rgba(0,0,0,0.08); border: none; margin-bottom: 20px; }
         .card-header { background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); color: white; border-radius: 15px 15px 0 0 !important; padding: 15px 20px; font-weight: 600; }
-        .table { background: white; border-radius: 10px; overflow: hidden; }
+        .table { background: white; border-radius: 10px; }
+        /* Закреплённую копию шапки таблицы показывает скрипт (initStickyTableHeads). CSS position: sticky
+           для thead не используется: внутри блока с прокруткой он сдвигает шапку вниз и оставляет пустую строку */
+        .sticky-head { position: fixed; top: var(--navbar-h); z-index: 1010; overflow: hidden; display: none;
+                       box-shadow: 0 3px 6px rgba(0,0,0,0.12); pointer-events: none; }
+        .sticky-head.is-visible { display: block; }
+        .sticky-head > table { margin: 0; border-radius: 0; }
         .table th { background-color: #f8f9fa; font-weight: 600; border-bottom: 2px solid #dee2e6; }
         .table td, .table th { padding: 12px; vertical-align: middle; }
         .btn { border-radius: 8px; padding: 8px 20px; transition: all 0.3s; }
@@ -61,7 +71,7 @@
 </head>
 <body>
     {% if current_user.is_authenticated %}
-    <nav class="navbar navbar-expand-lg navbar-dark" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);">
+    <nav class="navbar navbar-expand-lg navbar-dark sticky-top" id="mainNavbar" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);">
         <div class="container-fluid">
             <a class="navbar-brand" href="{{ url_for('dashboard') }}">
                 <i class="fas fa-ship"></i> Управление простоями флота
@@ -315,7 +325,79 @@
                 });
             });
         }
+        // Высота верхней панели — для закрепления левой панели и заголовков таблиц под ней
+        function updateNavbarHeight() {
+            const nav = document.getElementById('mainNavbar');
+            if (nav) document.documentElement.style.setProperty('--navbar-h', nav.offsetHeight + 'px');
+        }
+        window.addEventListener('resize', updateNavbarHeight);
+
+        // Закреплённые шапки таблиц. Таблица прокручивается вместе со страницей; когда её шапка уходит
+        // под верхнюю панель, поверх показывается копия шапки с теми же ширинами столбцов.
+        // Копия нужна потому, что широкие таблицы лежат в блоке с горизонтальной прокруткой (.table-responsive),
+        // а внутри такого блока CSS position: sticky не закрепляет шапку относительно страницы.
+        const stickyHeads = [];
+        function initStickyTableHeads(root) {
+            (root || document).querySelectorAll('table.table').forEach(function(table) {
+                if (table.dataset.stickyHead || !table.tHead || table.closest('.modal, .sticky-head')) return;
+                table.dataset.stickyHead = '1';
+                // Блок с горизонтальной прокруткой задаёт видимую ширину; без него ориентируемся на саму таблицу
+                const scroller = table.closest('.table-responsive') || table;
+                const holder = document.createElement('div');
+                holder.className = 'sticky-head';
+                holder.setAttribute('aria-hidden', 'true');
+                const cloneTable = document.createElement('table');
+                cloneTable.className = table.className;
+                const cloneHead = table.tHead.cloneNode(true);
+                cloneHead.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
+                cloneTable.appendChild(cloneHead);
+                holder.appendChild(cloneTable);
+                scroller.parentNode.insertBefore(holder, scroller);
+                stickyHeads.push({table: table, scroller: scroller, holder: holder, cloneTable: cloneTable, cloneHead: cloneHead});
+                const item = stickyHeads[stickyHeads.length - 1];
+                if (window.ResizeObserver) new ResizeObserver(() => syncStickyHead(item)).observe(table);
+                if (scroller !== table) scroller.addEventListener('scroll', () => placeStickyHead(item), {passive: true});
+                syncStickyHead(item);
+            });
+        }
+        function syncStickyHead(item) {
+            // Ширины ячеек копии = ширины ячеек настоящей шапки (структура строк и объединений одинаковая)
+            const orig = item.table.tHead.querySelectorAll('th, td');
+            const copy = item.cloneHead.querySelectorAll('th, td');
+            item.cloneTable.style.width = item.table.offsetWidth + 'px';
+            orig.forEach(function(cell, i) {
+                if (!copy[i]) return;
+                const w = cell.getBoundingClientRect().width + 'px';
+                copy[i].style.width = copy[i].style.minWidth = copy[i].style.maxWidth = w;
+            });
+            placeStickyHead(item);
+        }
+        function placeStickyHead(item) {
+            const navH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--navbar-h')) || 0;
+            const rect = item.table.getBoundingClientRect();
+            const headH = item.table.tHead.offsetHeight;
+            const visible = item.table.offsetParent !== null && rect.top < navH && rect.bottom - headH > navH;
+            item.holder.classList.toggle('is-visible', visible);
+            if (!visible) return;
+            const box = item.scroller.getBoundingClientRect();
+            item.holder.style.left = (box.left + item.scroller.clientLeft) + 'px';
+            item.holder.style.width = item.scroller.clientWidth + 'px';
+            item.cloneTable.style.transform = 'translateX(' + (-item.scroller.scrollLeft) + 'px)';
+        }
+        let stickyFrame = null;
+        function placeAllStickyHeads() {
+            if (stickyFrame) return;
+            stickyFrame = requestAnimationFrame(function() {
+                stickyFrame = null;
+                stickyHeads.forEach(placeStickyHead);
+            });
+        }
+        window.addEventListener('scroll', placeAllStickyHeads, {passive: true});
+        window.addEventListener('resize', () => stickyHeads.forEach(syncStickyHead));
+
         document.addEventListener('DOMContentLoaded', function() {
+            updateNavbarHeight();
+            initStickyTableHeads();
             initSearchableSelects();
             document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function(el) {
                 new bootstrap.Tooltip(el, {html: el.dataset.bsHtml === 'true'});
@@ -378,6 +460,96 @@
             }
         });
     </script>
+    {% if current_user.is_authenticated %}
+    <script>
+    // Автоматический выход: бездействие (общее для всех вкладок) и закрытие вкладки
+    (function() {
+        const IDLE_MS = {{ session_idle_minutes }} * 60 * 1000;
+        const PING_MS = 60 * 1000;          // не чаще раза в минуту сообщать серверу, что пользователь работает
+        const HEARTBEAT_MS = 2000;          // открытые вкладки отмечаются каждые 2 секунды
+        const HEARTBEAT_ALIVE_MS = 6000;    // вкладка считается открытой, если отмечалась за последние 6 секунд
+        const KEY = {activity: 'flot.lastActivity', ping: 'flot.lastPing', heartbeat: 'flot.heartbeat', logout: 'flot.logout'};
+        const TAB_KEY = 'flot.tabAuth';
+        const LOGOUT_URL = '{{ url_for("logout") }}';
+
+        const store = {
+            get: k => { try { return parseInt(localStorage.getItem(k) || '0', 10); } catch (e) { return 0; } },
+            set: (k, v) => { try { localStorage.setItem(k, String(v)); } catch (e) {} }
+        };
+        let leaving = false;
+
+        function endSession(reason) {
+            if (leaving) return;
+            leaving = true;
+            store.set(KEY.logout, Date.now());   // остальные вкладки тоже выйдут
+            window.location.replace(LOGOUT_URL + (reason ? '?reason=' + reason : ''));
+        }
+
+        // 1. Закрытие вкладки. Отметка вкладки живёт в sessionStorage: она сохраняется при переходах
+        //    и обновлении страницы, но пропадает при закрытии вкладки.
+        const now = Date.now();
+        let tabAuth = null;
+        try { tabAuth = sessionStorage.getItem(TAB_KEY); } catch (e) {}
+        if ({{ 'true' if fresh_login else 'false' }}) {
+            try { sessionStorage.setItem(TAB_KEY, '1'); } catch (e) {}
+            store.set(KEY.activity, now);
+        } else if (!tabAuth) {
+            // Вкладка без отметки: если открыта другая вкладка программы (ссылка открыта в новой вкладке) —
+            // продолжаем работу, иначе все вкладки были закрыты — завершаем сеанс.
+            if (now - store.get(KEY.heartbeat) < HEARTBEAT_ALIVE_MS) {
+                try { sessionStorage.setItem(TAB_KEY, '1'); } catch (e) {}
+            } else {
+                endSession('tab_closed');
+                return;
+            }
+        }
+        store.set(KEY.heartbeat, now);
+        setInterval(() => store.set(KEY.heartbeat, Date.now()), HEARTBEAT_MS);
+
+        // 2. Бездействие: мышь, клавиатура, прокрутка, касания в любой вкладке программы
+        store.set(KEY.activity, now);
+        store.set(KEY.ping, now);  // загрузка страницы уже продлила сеанс на сервере
+        let lastMark = now;
+        function markActivity() {
+            const t = Date.now();
+            if (t - lastMark < 5000) return;
+            lastMark = t;
+            store.set(KEY.activity, t);
+        }
+        ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'wheel'].forEach(function(evt) {
+            document.addEventListener(evt, markActivity, {passive: true, capture: true});
+        });
+
+        setInterval(function() {
+            const t = Date.now();
+            const lastActivity = store.get(KEY.activity);
+            if (t - lastActivity >= IDLE_MS) {
+                endSession('idle');
+                return;
+            }
+            // Пользователь работает, но не переходит по страницам — продлеваем сеанс на сервере
+            const lastPing = store.get(KEY.ping);
+            if (lastActivity > lastPing && t - lastPing >= PING_MS) {
+                store.set(KEY.ping, t);
+                fetch('{{ url_for("session_ping") }}', {method: 'POST', credentials: 'same-origin'})
+                    .then(r => { if (r.status === 401) endSession(); })
+                    .catch(() => {});
+            }
+        }, 15000);
+
+        // 3. Выход в одной вкладке завершает работу во всех
+        window.addEventListener('storage', function(e) {
+            if (e.key === KEY.logout && !leaving) {
+                leaving = true;
+                window.location.replace('{{ url_for("login") }}');
+            }
+        });
+        document.querySelectorAll('a[href="' + LOGOUT_URL + '"]').forEach(function(a) {
+            a.addEventListener('click', () => store.set(KEY.logout, Date.now()));
+        });
+    })();
+    </script>
+    {% endif %}
     {% block scripts %}{% endblock %}
 </body>
 </html>
