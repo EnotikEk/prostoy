@@ -54,11 +54,19 @@ def enforce_idle_timeout():
     if last is not None and now - last > Config.SESSION_IDLE_MINUTES * 60:
         logout_user_and_log(request.remote_addr, 'idle')
         flash(f'Сеанс завершён: нет действий более {Config.SESSION_IDLE_MINUTES} минут. Войдите снова.', 'warning')
-        if request.path.startswith('/api/') or request.path.startswith('/fleet/api/') or request.endpoint == 'session_ping':
+        if (request.path.startswith('/api/') or request.path.startswith('/fleet/api/')
+                or request.endpoint in ('session_ping', 'session_status')):
             return jsonify({'error': 'session_expired'}), 401
         return redirect(url_for('login'))
-    session['last_activity'] = now
+    # Проверка состояния сеанса из браузера не считается действием пользователя и не продлевает сеанс
+    if request.endpoint != 'session_status':
+        session['last_activity'] = now
     return None
+
+
+def session_seconds_left():
+    last = session.get('last_activity') or time.time()
+    return max(0, int(Config.SESSION_IDLE_MINUTES * 60 - (time.time() - last)))
 
 def role_required(*roles):
     def decorator(f):

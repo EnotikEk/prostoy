@@ -421,7 +421,7 @@
             bootstrap.Modal.getOrCreateInstance(document.getElementById('shipInfoModal')).show();
 
             fetch('/api/ships/' + link.dataset.shipId + '/info')
-                .then(r => r.json())
+                .then(r => { if (r.status === 401) { window.location.reload(); throw new Error('session_expired'); } return r.json(); })
                 .then(data => {
                     title.innerHTML = '<i class="fas fa-ship me-2"></i> ' + esc(data.ship_name);
                     let html = '';
@@ -453,7 +453,9 @@
         // Глобальная обработка ошибок AJAX
         $(document).ajaxError(function(event, jqXHR, settings, error) {
             console.error('AJAX Error:', error);
-            if (jqXHR.status === 500) {
+            if (jqXHR.status === 401) {
+                window.location.reload();
+            } else if (jqXHR.status === 500) {
                 alert('Ошибка сервера. Попробуйте обновить страницу.');
             } else if (jqXHR.status === 404) {
                 alert('Страница не найдена. Обновите страницу.');
@@ -483,6 +485,27 @@
             leaving = true;
             store.set(KEY.logout, Date.now());   // остальные вкладки тоже выйдут
             window.location.replace(LOGOUT_URL + (reason ? '?reason=' + reason : ''));
+        }
+
+        // Сеанс уже завершён на сервере — перезагрузка открывает окно входа с причиной выхода
+        function showLogin() {
+            if (leaving) return;
+            leaving = true;
+            store.set(KEY.logout, Date.now());
+            window.location.replace('{{ url_for("login") }}');
+        }
+
+        // Проверка на сервере: не продлевает сеанс, только сообщает, сколько осталось
+        let lastServerCheck = 0;
+        function checkServerSession() {
+            lastServerCheck = Date.now();
+            fetch('{{ url_for("session_status") }}', {credentials: 'same-origin', cache: 'no-store'})
+                .then(function(r) {
+                    if (r.status === 401) { showLogin(); return null; }
+                    return r.ok ? r.json() : null;
+                })
+                .then(function(data) { if (data && data.seconds_left <= 0) showLogin(); })
+                .catch(() => {});
         }
 
         // 1. Закрытие вкладки. Отметка вкладки живёт в sessionStorage: она сохраняется при переходах
@@ -520,22 +543,32 @@
             document.addEventListener(evt, markActivity, {passive: true, capture: true});
         });
 
-        setInterval(function() {
+        function checkIdle() {
             const t = Date.now();
             const lastActivity = store.get(KEY.activity);
             if (t - lastActivity >= IDLE_MS) {
                 endSession('idle');
                 return;
             }
+            if (t - lastServerCheck >= 60 * 1000) checkServerSession();
             // Пользователь работает, но не переходит по страницам — продлеваем сеанс на сервере
             const lastPing = store.get(KEY.ping);
             if (lastActivity > lastPing && t - lastPing >= PING_MS) {
                 store.set(KEY.ping, t);
                 fetch('{{ url_for("session_ping") }}', {method: 'POST', credentials: 'same-origin'})
-                    .then(r => { if (r.status === 401) endSession(); })
+                    .then(r => { if (r.status === 401) showLogin(); })
                     .catch(() => {});
             }
-        }, 15000);
+        }
+        setInterval(checkIdle, 15000);
+
+        // Возврат на вкладку, выход из сна, разворачивание окна — проверить сразу, не дожидаясь таймера
+        document.addEventListener('visibilitychange', function() {
+            if (document.visibilityState === 'visible') { checkIdle(); checkServerSession(); }
+        });
+        window.addEventListener('focus', function() { checkIdle(); checkServerSession(); });
+        // Страница восстановлена из кэша кнопкой «Назад» — перезагрузить, чтобы сервер решил, пускать ли
+        window.addEventListener('pageshow', function(e) { if (e.persisted) window.location.reload(); });
 
         // 3. Выход в одной вкладке завершает работу во всех
         window.addEventListener('storage', function(e) {

@@ -11,7 +11,7 @@ Group=www-data
 WorkingDirectory=/opt/flot/prostoy
 # SECRET_KEY и другие настройки — в файле .env в папке проекта («-»: если файла нет, служба всё равно запустится)
 EnvironmentFile=-/opt/flot/prostoy/.env
-ExecStart=/opt/flot/venv/bin/python -m gunicorn -c gunicorn.conf.py app:app
+ExecStart=/opt/flot/venv/bin/gunicorn --preload --workers 2 --threads 4 --timeout 120 --bind 127.0.0.1:5000 app:app
 ExecReload=/bin/kill -s HUP $MAINPID
 Restart=on-failure
 RestartSec=5

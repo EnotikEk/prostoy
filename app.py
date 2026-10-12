@@ -9,7 +9,7 @@ import mimetypes
 from config import Config
 from models import db, User, Ship, Downtime, PlannedMaintenance, DowntimeFile, AuditLog
 from auth import init_auth, login_user_by_credentials, logout_user_and_log, log_audit, create_default_users
-from auth import enforce_idle_timeout, LOGOUT_REASONS
+from auth import enforce_idle_timeout, session_seconds_left, LOGOUT_REASONS
 from auth import captain_required, engineer_required, admin_required
 from kpi_calculator import KPICalculator
 from report_generator import ReportGenerator
@@ -76,6 +76,20 @@ def logout():
 def session_ping():
     """Продление сеанса: браузер сообщает, что пользователь работает (мышь, клавиатура)."""
     return '', 204
+
+@app.route('/session/status')
+def session_status():
+    """Сколько секунд осталось до автоматического выхода. Сеанс не продлевает."""
+    if not current_user.is_authenticated:
+        return jsonify({'error': 'session_expired'}), 401
+    return jsonify({'seconds_left': session_seconds_left()})
+
+@app.after_request
+def no_store_for_pages(response):
+    # Страницы с данными не кэшируются: после выхода кнопка «Назад» не покажет их, а перезагрузит
+    if current_user.is_authenticated and response.mimetype == 'text/html':
+        response.headers['Cache-Control'] = 'no-store'
+    return response
 
 @app.context_processor
 def inject_session_settings():
